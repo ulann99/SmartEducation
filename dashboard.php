@@ -65,7 +65,7 @@ $queryGrafik = mysqli_query(
     WHERE status_pembayaran = 'Lunas'
         AND tanggal_bayar >= DATE_SUB(CURDATE(), INTERVAL 5 MONTH)
     GROUP BY YEAR(tanggal_bayar), MONTH(tanggal_bayar)
-    ORDER BY YEAR(tanggal_bayar), MONTH(tanggal_bayar)"
+    ORDER BY MIN(tanggal_bayar)"
 );
 
 
@@ -134,360 +134,385 @@ $dataPembayaranJSON = json_encode($dataGrafikPembayaran);
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Poppins', sans-serif;
-        }
 
-        body {
-            background: #E8FDFF;
-            color: #000;
-            min-height: 100vh;
-        }
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Poppins', sans-serif;
+}
 
-        /* SIDEBAR */
-        .sidebar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 300px;
-            height: 100vh;
-            background: #98EDE1;
-            border-radius: 0 22px 22px 0;
-            padding: 28px 0;
-            overflow-y: auto;
-            z-index: 100;
-        }
+body {
+    min-height: 100vh;
+    background: #E8FDFF;
+    color: #000;
+}
 
-        .brand {
-            text-align: center;
-            padding: 5px 15px 28px;
-        }
+/* SIDEBAR */
+.sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 468px;
+    height: 100vh;
+    background: #98EDE1;
+    border-radius: 0 22px 22px 0;
+    padding: 24px 0 16px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    z-index: 100;
+}
 
-        .brand img {
-            width: 58px;
-            height: 58px;
-            object-fit: contain;
-            margin-bottom: 8px;
-        }
+.brand {
+    text-align: center;
+    padding: 5px 15px 20px;
+}
 
-        .brand h2 {
-            font-size: 19px;
-            font-weight: 800;
-        }
+.brand img {
+    width: 58px;
+    height: 58px;
+    object-fit: contain;
+    margin-bottom: 6px;
+}
 
-        .brand p {
-            font-size: 10px;
-            margin-top: 2px;
-        }
+.brand h2 {
+    font-size: 19px;
+    font-weight: 800;
+}
 
-        .admin-profile {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            padding: 10px 30px 30px;
-        }
+.brand p {
+    font-size: 10px;
+    margin-top: 2px;
+}
 
-        .avatar {
-            width: 55px;
-            height: 55px;
-            border-radius: 50%;
-            background: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 22px;
-            font-weight: 700;
-        }
+.admin-profile {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 8px 42px 22px;
+}
 
-        .admin-profile h3 {
-            font-size: 18px;
-            font-weight: 600;
-        }
+.avatar {
+    width: 60px;
+    height: 60px;
+    flex: 0 0 60px;
+    border-radius: 50%;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    font-weight: 700;
+}
 
-        .menu a {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            padding: 12px 28px;
-            text-decoration: none;
-            color: #000;
-            font-size: 15px;
-            font-weight: 500;
-            transition: 0.2s;
-        }
+.admin-profile h3 {
+    font-size: 19px;
+    font-weight: 600;
+}
 
-        .menu a:hover,
-        .menu a.active {
-            background: #E8FDFF;
-        }
+.menu a {
+    display: flex;
+    align-items: center;
+    gap: 17px;
+    min-height: 49px;
+    padding: 8px 26px 8px 72px;
+    color: #000;
+    text-decoration: none;
+    font-size: 17px;
+    font-weight: 500;
+    transition: background .2s ease;
+}
 
-        .menu-icon {
-            width: 27px;
-            text-align: center;
-            font-size: 21px;
-        }
+.menu a:hover,
+.menu a.active {
+    background: #E8FDFF;
+}
 
-        .menu a.logout {
-            color: #a72e2e;
-            margin-top: 8px;
-        }
+.menu-icon {
+    width: 27px;
+    flex: 0 0 27px;
+    text-align: center;
+    font-size: 25px;
+    line-height: 1;
+    color: #173B48;
+}
 
-        /* KONTEN UTAMA */
-        .main-content {
-            margin-left: 300px;
-            padding: 30px 38px;
-            min-height: 100vh;
-        }
+.menu a.logout {
+    color: #9b2929;
+    margin-top: 4px;
+}
 
-        /* NAVBAR */
-        .navbar {
-            height: 80px;
-            background: #98EDE1;
-            border-radius: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            padding: 0 35px;
-            margin-bottom: 35px;
-        }
+/* AREA UTAMA */
+.main-content {
+    width: calc(100% - 468px);
+    min-height: 100vh;
+    margin-left: 468px;
+    padding: 30px 38px 45px 54px;
+}
 
-        .notification {
-            font-size: 27px;
-            color: #163f47;
-            text-decoration: none;
-        }
+.navbar {
+    height: 95px;
+    width: 100%;
+    background: #98EDE1;
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 42px;
+    margin-bottom: 35px;
+}
 
-        /* SAPAAN */
-        .welcome {
-            margin-bottom: 32px;
-        }
+.notification {
+    font-size: 30px;
+    color: #163f47;
+    text-decoration: none;
+    line-height: 1;
+}
 
-        .welcome h1 {
-            font-size: 30px;
-            font-weight: 700;
-            margin-bottom: 8px;
-        }
+.welcome {
+    margin: 0 0 30px 16px;
+}
 
-        .welcome p {
-            font-size: 15px;
-        }
+.welcome h1 {
+    font-size: clamp(26px, 2.5vw, 38px);
+    line-height: 1.3;
+    font-weight: 700;
+    margin-bottom: 10px;
+}
 
-        /* KARTU STATISTIK */
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 16px;
-            margin-bottom: 30px;
-        }
+.welcome p {
+    font-size: 17px;
+    line-height: 1.6;
+}
 
-        .stat-card {
-            background: #98EDE1;
-            min-height: 130px;
-            border-radius: 20px;
-            padding: 25px 12px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            text-align: center;
-        }
+/* KARTU RINGKASAN */
+.stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 18px;
+    margin-bottom: 28px;
+}
 
-        .stat-card h3 {
-            font-size: 17px;
-            font-weight: 600;
-            margin-bottom: 5px;
-        }
+.stat-card {
+    min-width: 0;
+    min-height: 130px;
+    padding: 22px 10px;
+    border-radius: 20px;
+    background: #98EDE1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
 
-        .stat-card .number {
-            font-size: 29px;
-            font-weight: 700;
-        }
+.stat-card h3 {
+    font-size: 17px;
+    font-weight: 600;
+    margin-bottom: 5px;
+}
 
-        .stat-card .money {
-            font-size: 18px;
-            font-weight: 600;
-        }
+.stat-card .number {
+    font-size: 30px;
+    font-weight: 700;
+}
 
-        /* GRAFIK */
-        .chart-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 18px;
-        }
+.stat-card .money {
+    font-size: clamp(14px, 1.25vw, 19px);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
 
-        .chart-card {
-            background: #98EDE1;
-            border-radius: 20px;
-            padding: 30px;
-            min-height: 420px;
-        }
+/* PANEL GRAFIK: KEDUANYA SAMA LEBAR */
+.chart-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 18px;
+    width: 100%;
+    align-items: stretch;
+}
 
-        .chart-card h2 {
-            text-align: center;
-            font-size: 19px;
-            font-weight: 600;
-            margin-bottom: 30px;
-        }
+.chart-card {
+    min-width: 0;
+    width: 100%;
+    min-height: 420px;
+    padding: 30px;
+    border-radius: 20px;
+    background: #98EDE1;
+    overflow: hidden;
+}
 
-        .chart-container {
-            height: 290px;
-            position: relative;
-        }
+.chart-card h2 {
+    text-align: center;
+    font-size: 21px;
+    font-weight: 600;
+    margin-bottom: 28px;
+}
 
-        /* LEGENDA RFM */
-        .rfm-content {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            gap: 30px;
-            min-height: 290px;
-        }
+.chart-container {
+    position: relative;
+    width: 100%;
+    max-width: 100%;
+    height: 300px;
+    min-width: 0;
+}
 
-        .rfm-item {
-            display: grid;
-            grid-template-columns: 22px 1fr auto;
-            align-items: center;
-            gap: 12px;
-            font-size: 12px;
-        }
+.chart-container canvas {
+    display: block;
+    max-width: 100%;
+}
 
-        .rfm-dot {
-            width: 19px;
-            height: 19px;
-            border-radius: 50%;
-        }
+.rfm-content {
+    min-width: 0;
+    min-height: 300px;
+    padding: 0 5px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 30px;
+}
 
-        .orange {
-            background: #FF9B6A;
-        }
+.rfm-item {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+}
 
-        .purple {
-            background: #B69AC8;
-        }
+.rfm-dot {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+}
 
-        .green {
-            background: #509F94;
-        }
+.orange { background: #FF9B6A; }
+.purple { background: #B69AC8; }
+.green { background: #509F94; }
 
-        .rfm-percent {
-            font-weight: 500;
-        }
+.rfm-percent {
+    font-weight: 500;
+}
 
-        .empty-rfm {
-            text-align: center;
-            font-size: 13px;
-            color: #315e55;
-        }
+.empty-rfm {
+    text-align: center;
+    font-size: 14px;
+    color: #315e55;
+}
 
-        /* RESPONSIVE */
-        @media (max-width: 1100px) {
-            .sidebar {
-                width: 250px;
-            }
+/* LAYAR LAPTOP KECIL */
+@media (max-width: 1200px) {
+    .sidebar {
+        width: 270px;
+    }
 
-            .main-content {
-                margin-left: 250px;
-                padding: 25px;
-            }
+    .main-content {
+        width: calc(100% - 270px);
+        margin-left: 270px;
+        padding: 25px 24px;
+    }
 
-            .stats {
-                grid-template-columns: repeat(2, 1fr);
-            }
+    .menu a {
+        padding-left: 35px;
+    }
 
-            .chart-grid {
-                grid-template-columns: 1fr;
-            }
-        }
+    .stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 
-        @media (max-width: 650px) {
-            .sidebar {
-                width: 75px;
-                padding: 20px 0;
-            }
+    .chart-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
 
-            .brand h2,
-            .brand p,
-            .admin-profile h3,
-            .menu a span:not(.menu-icon) {
-                display: none;
-            }
+/* LAYAR HP */
+@media (max-width: 650px) {
+    .sidebar {
+        width: 75px;
+        padding: 20px 0;
+    }
 
-            .brand img {
-                width: 42px;
-                height: 42px;
-            }
+    .brand h2,
+    .brand p,
+    .admin-profile h3,
+    .menu a span:not(.menu-icon) {
+        display: none;
+    }
 
-            .admin-profile {
-                justify-content: center;
-                padding: 10px 5px 25px;
-            }
+    .brand img {
+        width: 42px;
+        height: 42px;
+    }
 
-            .avatar {
-                width: 43px;
-                height: 43px;
-            }
+    .admin-profile {
+        justify-content: center;
+        padding: 10px 5px 25px;
+    }
 
-            .menu a {
-                justify-content: center;
-                padding: 14px 5px;
-            }
+    .avatar {
+        width: 43px;
+        height: 43px;
+        flex-basis: 43px;
+        font-size: 17px;
+    }
 
-            .main-content {
-                margin-left: 75px;
-                padding: 18px 12px;
-            }
+    .menu a {
+        justify-content: center;
+        padding: 14px 5px;
+        min-height: 50px;
+    }
 
-            .navbar {
-                height: 60px;
-                margin-bottom: 25px;
-            }
+    .main-content {
+        width: calc(100% - 75px);
+        margin-left: 75px;
+        padding: 15px 12px 25px;
+    }
 
-            .welcome h1 {
-                font-size: 22px;
-            }
+    .navbar {
+        height: 60px;
+        margin-bottom: 23px;
+        border-radius: 14px;
+        padding: 0 20px;
+    }
 
-            .welcome p {
-                font-size: 12px;
-            }
+    .welcome {
+        margin-left: 3px;
+    }
 
-            .stats {
-                grid-template-columns: 1fr 1fr;
-                gap: 10px;
-            }
+    .welcome h1 {
+        font-size: 21px;
+    }
 
-            .stat-card {
-                min-height: 110px;
-                padding: 15px 8px;
-            }
+    .welcome p {
+        font-size: 12px;
+    }
 
-            .stat-card h3 {
-                font-size: 13px;
-            }
+    .stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
 
-            .stat-card .number {
-                font-size: 23px;
-            }
+    .stat-card {
+        min-height: 105px;
+        padding: 14px 7px;
+        border-radius: 15px;
+    }
 
-            .stat-card .money {
-                font-size: 13px;
-            }
+    .stat-card h3 { font-size: 13px; }
+    .stat-card .number { font-size: 23px; }
+    .stat-card .money { font-size: 12px; }
 
-            .chart-card {
-                padding: 20px 14px;
-                min-height: 350px;
-            }
+    .chart-card {
+        min-height: 340px;
+        padding: 20px 14px;
+        border-radius: 15px;
+    }
 
-            .chart-card h2 {
-                font-size: 16px;
-            }
+    .chart-card h2 { font-size: 16px; }
+    .chart-container { height: 250px; }
+    .rfm-item { font-size: 11px; }
+}
 
-            .rfm-item {
-                font-size: 10px;
-            }
-        }
     </style>
 </head>
 
@@ -639,7 +664,7 @@ $dataPembayaranJSON = json_encode($dataGrafikPembayaran);
 
                     <div class="rfm-item">
                         <div class="rfm-dot orange"></div>
-                        <span>Pembayar Rutin (6–9)</span>
+                        <span>Pembayar Rutin (8–9)</span>
                         <span class="rfm-percent"><?= $persenRutin; ?>%</span>
                     </div>
 
@@ -697,6 +722,7 @@ $dataPembayaranJSON = json_encode($dataGrafikPembayaran);
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            resizeDelay: 100,
 
             plugins: {
                 legend: {
