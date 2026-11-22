@@ -10,7 +10,7 @@ require_roles(['superadmin', 'admin']);
 
 if (empty($_SESSION['last_csp_result']) || empty($_SESSION['last_csp_result']['solution'])) {
     set_flash('danger', 'Tidak ada data solusi jadwal CSP yang siap diterapkan.');
-    header('Location: ' . base_url('modules/penjadwalan/index.php'));
+    header('Location: ' . base_url('modules/jadwal/index.php'));
     exit;
 }
 
@@ -72,7 +72,7 @@ try {
         $pdo->rollBack();
     }
     set_flash('danger', 'Gagal menyimpan jadwal ke database: ' . $e->getMessage());
-    header('Location: ' . base_url('modules/penjadwalan/index.php'));
+    header('Location: ' . base_url('modules/jadwal/index.php'));
     exit;
 }
 

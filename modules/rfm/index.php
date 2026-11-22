@@ -1,11 +1,15 @@
 <?php
+ini_set('display_errors', '1');
+ini_set('display_startup_errors', '1');
+error_reporting(E_ALL);
 /**
- * Analisis RFM & Segmentasi Siswa
+ * ANALISIS RFM & SEGMENTASI SISWA
  * SMART EDUCATION PAREPARE
  */
 
 define('BASEPATH', dirname(dirname(__DIR__)));
 require_once BASEPATH . '/config/helper.php';
+
 require_roles(['superadmin', 'admin']);
 
 $current_page = 'rfm';
@@ -13,407 +17,1238 @@ $page_title = 'Analisis RFM & Segmentasi Siswa';
 
 $periode = trim($_GET['periode'] ?? 'Semua Waktu');
 
-// Fetch RFM analysis results for this period
+/* =====================================================
+   PEMETAAN NAMA SEGMENTASI
+===================================================== */
+
+$segment_mapping = [
+    'Champions'            => 'Pembayar Unggulan',
+    'Loyal Students'       => 'Siswa Loyal',
+    'Potential Loyalists'  => 'Berpotensi Loyal',
+    'Promising'            => 'Berpotensi Berkembang',
+    'Recent Customers'     => 'Siswa Baru Aktif',
+    'At Risk'              => 'Berisiko',
+    'Hibernating'          => 'Tidak Aktif',
+
+    'Pembayar Rutin'       => 'Pembayar Rutin',
+    'Perlu Pengingat'      => 'Perlu Pengingat',
+    'Berisiko'             => 'Berisiko',
+];
+
+$segment_colors = [
+    'Pembayar Unggulan'       => '#198754',
+    'Siswa Loyal'             => '#20a779',
+    'Berpotensi Loyal'        => '#0d9bb5',
+    'Berpotensi Berkembang'   => '#e5a000',
+    'Siswa Baru Aktif'        => '#6c9bd2',
+    'Berisiko'                => '#e65b5b',
+    'Tidak Aktif'             => '#8b9299',
+    'Pembayar Rutin'          => '#198754',
+    'Perlu Pengingat'         => '#e5a000',
+];
+
+/* =====================================================
+   MENGAMBIL DATA RFM DAN TAGIHAN BELUM LUNAS
+===================================================== */
+
 $sql = "
-    SELECT r.*, s.nama_siswa, s.nis, s.no_telepon, p.nama_paket
+    SELECT
+        r.*,
+        s.nama_siswa,
+        s.nis,
+        p.nama_paket,
+        COALESCE(pb.jumlah_belum_lunas, 0) AS jumlah_belum_lunas,
+        COALESCE(pb.total_belum_lunas, 0) AS total_belum_lunas
     FROM analisis_rfm r
     JOIN siswa s ON r.id_siswa = s.id_siswa
     LEFT JOIN paket_belajar p ON s.id_paket = p.id_paket
+    LEFT JOIN (
+        SELECT
+            id_siswa,
+            COUNT(*) AS jumlah_belum_lunas,
+            SUM(nominal) AS total_belum_lunas
+        FROM pembayaran
+        WHERE status_pembayaran = 'Belum Lunas'
+        GROUP BY id_siswa
+    ) pb ON pb.id_siswa = r.id_siswa
     WHERE r.periode_analisis = :periode
     ORDER BY r.total_rfm_score DESC, r.monetary_amount DESC
 ";
+
 $stmt = $pdo->prepare($sql);
 $stmt->execute([':periode' => $periode]);
-$rfm_data = $stmt->fetchAll();
 
-// If table is empty for this period, automatically trigger calculation
-if (empty($rfm_data)) {
-    header('Location: ' . base_url('modules/rfm/hitung.php?periode=' . urlencode($periode)));
-    exit;
-}
+$rfm_data = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Segmentation Counts
-$segment_counts = [
-    'Champions' => 0,
-    'Loyal Students' => 0,
-    'Potential Loyalists' => 0,
-    'Recent Customers' => 0,
-    'Promising' => 0,
-    'Need Attention' => 0,
-    'At Risk' => 0,
-    'Hibernating' => 0
-];
-
-$sum_r = 0; $sum_f = 0; $sum_m = 0;
-foreach ($rfm_data as $row) {
-    if (isset($segment_counts[$row['segmentasi']])) {
-        $segment_counts[$row['segmentasi']]++;
-    }
-    $sum_r += $row['r_score'];
-    $sum_f += $row['f_score'];
-    $sum_m += $row['m_score'];
-}
+/* =====================================================
+   STATISTIK DAN GRAFIK
+===================================================== */
 
 $total_siswa = count($rfm_data);
+
+$sum_r = 0;
+$sum_f = 0;
+$sum_m = 0;
+
+$segment_counts = [];
+
+foreach ($rfm_data as $row) {
+    $nama_segment = $segment_mapping[$row['segmentasi']]
+        ?? $row['segmentasi'];
+
+    $segment_counts[$nama_segment] =
+        ($segment_counts[$nama_segment] ?? 0) + 1;
+
+    $sum_r += (int) $row['r_score'];
+    $sum_f += (int) $row['f_score'];
+    $sum_m += (int) $row['m_score'];
+}
+
 $avg_r = $total_siswa > 0 ? round($sum_r / $total_siswa, 1) : 0;
 $avg_f = $total_siswa > 0 ? round($sum_f / $total_siswa, 1) : 0;
 $avg_m = $total_siswa > 0 ? round($sum_m / $total_siswa, 1) : 0;
+
+$pembayar_unggulan =
+    ($segment_counts['Pembayar Unggulan'] ?? 0) +
+    ($segment_counts['Siswa Loyal'] ?? 0) +
+    ($segment_counts['Pembayar Rutin'] ?? 0);
+
+$perlu_perhatian =
+    ($segment_counts['Berpotensi Loyal'] ?? 0) +
+    ($segment_counts['Berpotensi Berkembang'] ?? 0) +
+    ($segment_counts['Siswa Baru Aktif'] ?? 0) +
+    ($segment_counts['Perlu Pengingat'] ?? 0);
+
+$siswa_berisiko =
+    ($segment_counts['Berisiko'] ?? 0) +
+    ($segment_counts['Tidak Aktif'] ?? 0);
+
+$tanggal_analisis = !empty($rfm_data)
+    ? format_tanggal($rfm_data[0]['tanggal_analisis'])
+    : '-';
 
 require_once BASEPATH . '/includes/header.php';
 require_once BASEPATH . '/includes/sidebar.php';
 require_once BASEPATH . '/includes/navbar.php';
 ?>
 
-<div class="page-header">
-    <div>
-        <h1 class="h3 fw-bold">Analisis RFM & Segmentasi Siswa</h1>
-        <p class="text-muted">Segmentasi perilaku siswa berbasis Recency (Waktu), Frequency (Frekuensi), dan Monetary (Nominal Pembayaran).</p>
-    </div>
-    <div class="d-flex gap-2">
-        <a href="<?= base_url('modules/rfm/hitung.php?periode=' . urlencode($periode)) ?>" class="btn btn-mint">
-            <i class="bi bi-arrow-repeat me-1"></i> Hitung Ulang Analisis RFM
-        </a>
-        <a href="<?= base_url('modules/rfm/cetak.php?periode=' . urlencode($periode)) ?>" target="_blank" class="btn btn-outline-dark">
-            <i class="bi bi-printer me-1"></i> Cetak Analisis
-        </a>
-    </div>
-</div>
+<style>
+/* =====================================================
+   AREA HALAMAN
+===================================================== */
 
-<!-- Period Filter Card -->
-<div class="card mb-4 border-0 shadow-sm">
-    <div class="card-body p-3">
-        <form method="GET" action="" class="row g-2 align-items-center">
-            <div class="col-md-5">
-                <div class="input-group">
-                    <span class="input-group-text bg-light text-muted fw-semibold">Pilih Periode Analisis:</span>
-                    <select name="periode" class="form-select" onchange="this.form.submit()">
-                        <option value="Semua Waktu" <?= ($periode === 'Semua Waktu') ? 'selected' : '' ?>>Semua Waktu (All Time)</option>
-                        <option value="3 Bulan Terakhir" <?= ($periode === '3 Bulan Terakhir') ? 'selected' : '' ?>>3 Bulan Terakhir</option>
-                        <option value="6 Bulan Terakhir" <?= ($periode === '6 Bulan Terakhir') ? 'selected' : '' ?>>6 Bulan Terakhir</option>
-                        <option value="1 Tahun Terakhir" <?= ($periode === '1 Tahun Terakhir') ? 'selected' : '' ?>>1 Tahun Terakhir</option>
+.rfm-page {
+    width: 100%;
+    max-width: 100%;
+    padding: 24px;
+    margin: 0;
+    box-sizing: border-box;
+    color: #173d32;
+}
+
+.rfm-page * {
+    box-sizing: border-box;
+}
+
+.rfm-page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    width: 100%;
+    margin-bottom: 24px;
+    text-align: left;
+}
+
+.rfm-page-header h1 {
+    margin: 0 0 6px;
+    color: #173d32;
+    font-size: 25px;
+    font-weight: 750;
+}
+
+.rfm-page-header p {
+    margin: 0;
+    color: #718078;
+    font-size: 13px;
+}
+
+/* =====================================================
+   TOMBOL
+===================================================== */
+
+.rfm-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.rfm-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 42px;
+    padding: 10px 17px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+    text-decoration: none !important;
+    cursor: pointer;
+    transition: .2s ease;
+}
+
+.rfm-btn-primary {
+    background: #287f73;
+    color: #ffffff !important;
+    border-color: #287f73;
+    box-shadow: 0 3px 8px rgba(40, 127, 115, .15);
+}
+
+.rfm-btn-primary:hover {
+    background: #206d63;
+    border-color: #206d63;
+    color: #ffffff !important;
+    transform: translateY(-1px);
+}
+
+.rfm-btn-secondary {
+    background: #ffffff;
+    color: #287f73 !important;
+    border-color: #287f73;
+}
+
+.rfm-btn-secondary:hover {
+    background: #287f73;
+    color: #ffffff !important;
+}
+
+.rfm-btn-small {
+    min-height: 36px;
+    padding: 7px 13px;
+    font-size: 12px;
+}
+
+/* =====================================================
+   KARTU UMUM
+===================================================== */
+
+.rfm-filter-card,
+.rfm-stat-card,
+.rfm-card {
+    background: #ffffff;
+    border: 1px solid #e8efec;
+    border-radius: 13px;
+    box-shadow: 0 2px 8px rgba(20, 60, 45, .045);
+}
+
+.rfm-filter-card {
+    padding: 17px 19px;
+    margin-bottom: 20px;
+}
+
+.rfm-stat-card {
+    height: 100%;
+    padding: 18px;
+}
+
+.rfm-stat-label {
+    color: #718078;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.rfm-stat-value {
+    margin: 7px 0;
+    color: #173d32;
+    font-size: 27px;
+    font-weight: 750;
+}
+
+.rfm-stat-icon {
+    display: flex;
+    width: 43px;
+    height: 43px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 11px;
+    background: #e8fdff;
+    color: #287f73;
+    font-size: 19px;
+}
+
+.rfm-card {
+    height: 100%;
+    overflow: hidden;
+}
+
+.rfm-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 15px 18px;
+    background: #ffffff;
+    border-bottom: 1px solid #edf2ef;
+}
+
+.rfm-card-header h5 {
+    margin: 0;
+    color: #173d32;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.rfm-card-body {
+    padding: 18px;
+}
+
+/* =====================================================
+   FORM FILTER
+===================================================== */
+
+.rfm-filter-card label {
+    display: block;
+    margin-bottom: 7px;
+    color: #34483f;
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.rfm-filter-card .form-select {
+    min-height: 42px;
+    border: 1px solid #d8e8e2;
+    border-radius: 8px;
+    font-size: 13px;
+}
+
+.rfm-filter-card .form-select:focus {
+    border-color: #287f73;
+    box-shadow: 0 0 0 3px rgba(40, 127, 115, .1);
+}
+
+/* =====================================================
+   TABEL
+===================================================== */
+
+.rfm-table {
+    width: 100%;
+    min-width: 1180px;
+    margin: 0;
+}
+
+.rfm-table thead th {
+    padding: 14px 12px;
+    background: #e8f8f5;
+    color: #173d32;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+    border-bottom: 1px solid #e1eeea;
+}
+
+.rfm-table tbody td {
+    padding: 15px 12px;
+    color: #34483f;
+    font-size: 12px;
+    vertical-align: middle;
+    border-bottom: 1px solid #edf2ef;
+}
+
+.rfm-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.rfm-table tbody tr:hover {
+    background: #f8fcfa;
+}
+
+.rfm-table .student-name {
+    color: #173d32;
+    font-weight: 700;
+}
+
+.rfm-table .student-nis {
+    margin-top: 4px;
+    color: #829087;
+    font-size: 10px;
+}
+
+.rfm-score {
+    display: inline-flex;
+    min-width: 39px;
+    min-height: 35px;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 9px;
+    border-radius: 8px;
+    background: #98ede1;
+    color: #174d48;
+    font-size: 15px;
+    font-weight: 750;
+}
+
+.rfm-score-detail {
+    margin-top: 5px;
+    color: #829087;
+    font-size: 10px;
+    text-align: center;
+}
+
+.rfm-score-badge {
+    display: inline-block;
+    margin-top: 5px;
+    padding: 4px 7px;
+    border-radius: 5px;
+    background: #f1f5f4;
+    color: #52645b;
+    font-size: 10px;
+    font-weight: 650;
+}
+
+.rfm-segment-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 11px;
+    border-radius: 7px;
+    font-size: 11px;
+    font-weight: 650;
+    white-space: nowrap;
+}
+
+.rfm-empty {
+    padding: 55px 20px !important;
+    text-align: center;
+}
+
+.rfm-empty-icon {
+    margin-bottom: 12px;
+    color: #7b9d91;
+    font-size: 40px;
+}
+
+.rfm-empty h6 {
+    color: #173d32;
+    font-weight: 700;
+}
+
+.rfm-empty p {
+    color: #84938b;
+    font-size: 12px;
+}
+
+/* =====================================================
+   GRAFIK
+===================================================== */
+
+.rfm-chart-wrap {
+    position: relative;
+    width: 100%;
+    height: 270px;
+}
+
+.rfm-chart-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #84938b;
+    font-size: 13px;
+    text-align: center;
+}
+
+.rfm-average-box {
+    padding: 14px;
+    margin-top: 15px;
+    border-radius: 9px;
+    background: #f3faf7;
+}
+
+.rfm-average-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 9px;
+    font-size: 12px;
+}
+
+.rfm-average-row:last-child {
+    margin-bottom: 0;
+}
+
+/* =====================================================
+   MODAL
+===================================================== */
+
+#modalPanduanRFM .modal-content {
+    overflow: hidden;
+    border: 0;
+    border-radius: 14px;
+}
+
+#modalPanduanRFM .modal-header {
+    background: #e8fdff;
+    border-bottom: 1px solid #e3efeb;
+}
+
+#modalPanduanRFM .modal-title {
+    color: #173d32;
+    font-weight: 700;
+}
+
+#modalPanduanRFM .modal-body {
+    color: #34483f;
+    font-size: 13px;
+    line-height: 1.7;
+}
+
+#modalPanduanRFM .list-group-item {
+    padding: 13px 15px;
+    border-color: #e8efec;
+}
+
+@media (max-width: 768px) {
+    .rfm-page {
+        padding: 15px;
+    }
+
+    .rfm-page-header {
+        align-items: flex-start;
+    }
+
+    .rfm-page-header h1 {
+        font-size: 21px;
+    }
+
+    .rfm-actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .rfm-actions .rfm-btn {
+        flex: 1;
+    }
+
+    .rfm-chart-wrap {
+        height: 240px;
+    }
+}
+</style>
+<?php
+/* =====================================================
+   DATA PERIODE ANALISIS
+===================================================== */
+
+$stmt_periode = $pdo->query("
+    SELECT DISTINCT periode_analisis
+    FROM analisis_rfm
+    ORDER BY tanggal_analisis DESC
+");
+
+$daftar_periode = $stmt_periode->fetchAll(PDO::FETCH_COLUMN);
+
+/* =====================================================
+   WARNA DAN DATA GRAFIK
+===================================================== */
+
+$chart_labels = array_keys($segment_counts);
+$chart_values = array_values($segment_counts);
+?>
+
+<div class="rfm-page">
+
+    <!-- HEADER HALAMAN -->
+    <div class="rfm-page-header">
+
+        <div>
+            <h1>
+                <i class="bi bi-bar-chart-line me-2"></i>
+                
+            </h1>
+
+            <p>
+                Analisis pola pembayaran siswa berdasarkan Recency,
+                Frequency, dan Monetary.
+            </p>
+        </div>
+
+        <div class="rfm-actions">
+
+            <button type="button"
+                    class="rfm-btn rfm-btn-secondary"
+                    data-bs-toggle="modal"
+                    data-bs-target="#modalPanduanRFM">
+
+                <i class="bi bi-info-circle"></i>
+                Panduan RFM
+
+            </button>
+
+            <a href="<?= base_url('modules/rfm/cetak.php?periode=' . urlencode($periode)) ?>"
+               target="_blank"
+               class="rfm-btn rfm-btn-primary">
+
+                <i class="bi bi-printer"></i>
+                Cetak Laporan
+
+            </a>
+
+        </div>
+
+    </div>
+
+    <!-- FILTER PERIODE -->
+    <div class="rfm-filter-card">
+
+        <form method="GET"
+              action="<?= base_url('modules/rfm/index.php') ?>">
+
+            <div class="row align-items-end g-3">
+
+                <div class="col-md-5">
+
+                    <label for="periode">
+                        Periode Analisis
+                    </label>
+
+                    <select name="periode"
+                            id="periode"
+                            class="form-select">
+
+                        <?php foreach ($daftar_periode as $item_periode): ?>
+
+                            <option value="<?= htmlspecialchars($item_periode) ?>"
+                                <?= $periode === $item_periode ? 'selected' : '' ?>>
+
+                                <?= htmlspecialchars($item_periode) ?>
+
+                            </option>
+
+                        <?php endforeach; ?>
+
                     </select>
+
                 </div>
+
+                <div class="col-md-3">
+
+                    <button type="submit"
+                            class="rfm-btn rfm-btn-primary">
+
+                        <i class="bi bi-funnel"></i>
+                        Terapkan Filter
+
+                    </button>
+
+                </div>
+
+                <div class="col-md-4 text-md-end">
+
+                    <small class="text-muted">
+                        Tanggal Analisis:
+                        <strong><?= htmlspecialchars($tanggal_analisis) ?></strong>
+                    </small>
+
+                </div>
+
             </div>
-            <div class="col-md-7 text-md-end text-muted small">
-                Terakhir dihitung: <span class="fw-semibold text-dark"><?= !empty($rfm_data[0]['tanggal_analisis']) ? format_tanggal($rfm_data[0]['tanggal_analisis']) : '-' ?></span>
-            </div>
+
         </form>
-    </div>
-</div>
 
-<!-- RFM KPI Cards -->
-<div class="row g-3 mb-4">
-    <div class="col-md-3">
-        <div class="stat-card">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <div class="stat-label">Siswa Dianalisis</div>
-                    <div class="stat-value mt-1"><?= $total_siswa ?></div>
-                    <small class="text-mint fw-medium"><i class="bi bi-people me-1"></i>Data Siswa Aktif</small>
-                </div>
-                <div class="stat-icon mint"><i class="bi bi-person-check-fill"></i></div>
-            </div>
-        </div>
     </div>
-    <div class="col-md-3">
-        <div class="stat-card">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <div class="stat-label">Champions</div>
-                    <div class="stat-value mt-1 text-emerald"><?= $segment_counts['Champions'] ?></div>
-                    <small class="text-emerald fw-medium"><i class="bi bi-trophy-fill me-1"></i>Siswa Paling Loyal</small>
-                </div>
-                <div class="stat-icon emerald"><i class="bi bi-star-fill"></i></div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="stat-card">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <div class="stat-label">Loyal & Potential</div>
-                    <div class="stat-value mt-1 text-primary"><?= $segment_counts['Loyal Students'] + $segment_counts['Potential Loyalists'] ?></div>
-                    <small class="text-primary fw-medium"><i class="bi bi-graph-up-arrow me-1"></i>Pelanggan Potensial</small>
-                </div>
-                <div class="stat-icon blue"><i class="bi bi-award-fill"></i></div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="stat-card">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <div class="stat-label">At Risk / Hibernating</div>
-                    <div class="stat-value mt-1 text-danger"><?= $segment_counts['At Risk'] + $segment_counts['Hibernating'] ?></div>
-                    <small class="text-danger fw-medium"><i class="bi bi-exclamation-triangle me-1"></i>Perlu Pendekatan</small>
-                </div>
-                <div class="stat-icon amber"><i class="bi bi-bell-fill"></i></div>
-            </div>
-        </div>
-    </div>
-</div>
 
-<!-- Charts Section -->
-<div class="row g-3 mb-4">
-    <!-- Doughnut Segment Chart -->
-    <div class="col-lg-7">
-        <div class="card h-100">
-            <div class="card-header bg-white">
-                <h5 class="card-title mb-0 fw-bold d-flex align-items-center gap-2">
-                    <i class="bi bi-pie-chart-fill text-mint"></i> Komposisi Segmentasi Siswa
+    <!-- KARTU STATISTIK -->
+    <div class="row g-3 mb-4">
+
+        <div class="col-xl-3 col-md-6">
+
+            <div class="rfm-stat-card">
+
+                <div class="d-flex justify-content-between align-items-center">
+
+                    <div>
+                        <div class="rfm-stat-label">
+                            Total Siswa Dianalisis
+                        </div>
+
+                        <div class="rfm-stat-value">
+                            <?= number_format($total_siswa) ?>
+                        </div>
+
+                        <small class="text-muted">
+                            Data hasil analisis RFM
+                        </small>
+                    </div>
+
+                    <div class="rfm-stat-icon">
+                        <i class="bi bi-people"></i>
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="col-xl-3 col-md-6">
+
+            <div class="rfm-stat-card">
+
+                <div class="d-flex justify-content-between align-items-center">
+
+                    <div>
+                        <div class="rfm-stat-label">
+                            Pembayar Unggulan
+                        </div>
+
+                        <div class="rfm-stat-value">
+                            <?= number_format($pembayar_unggulan) ?>
+                        </div>
+
+                        <small class="text-success">
+                            Siswa dengan pembayaran baik
+                        </small>
+                    </div>
+
+                    <div class="rfm-stat-icon">
+                        <i class="bi bi-award"></i>
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="col-xl-3 col-md-6">
+
+            <div class="rfm-stat-card">
+
+                <div class="d-flex justify-content-between align-items-center">
+
+                    <div>
+                        <div class="rfm-stat-label">
+                            Perlu Perhatian
+                        </div>
+
+                        <div class="rfm-stat-value">
+                            <?= number_format($perlu_perhatian) ?>
+                        </div>
+
+                        <small class="text-warning">
+                            Perlu pemantauan pembayaran
+                        </small>
+                    </div>
+
+                    <div class="rfm-stat-icon">
+                        <i class="bi bi-bell"></i>
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="col-xl-3 col-md-6">
+
+            <div class="rfm-stat-card">
+
+                <div class="d-flex justify-content-between align-items-center">
+
+                    <div>
+                        <div class="rfm-stat-label">
+                            Siswa Berisiko
+                        </div>
+
+                        <div class="rfm-stat-value">
+                            <?= number_format($siswa_berisiko) ?>
+                        </div>
+
+                        <small class="text-danger">
+                            Memerlukan perhatian khusus
+                        </small>
+                    </div>
+
+                    <div class="rfm-stat-icon">
+                        <i class="bi bi-exclamation-triangle"></i>
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- GRAFIK DAN RATA-RATA RFM -->
+    <div class="row g-3 mb-4">
+
+        <div class="col-lg-7">
+
+            <div class="rfm-card">
+
+                <div class="rfm-card-header">
+
+                    <h5>
+                        <i class="bi bi-pie-chart me-2"></i>
+                        Distribusi Segmentasi Siswa
+                    </h5>
+
+                </div>
+
+                <div class="rfm-card-body">
+
+                    <?php if ($total_siswa > 0): ?>
+
+                        <?php foreach ($segment_counts as $nama_segment => $jumlah_segment): ?>
+
+                            <?php
+                            $warna_segment = $segment_colors[$nama_segment] ?? '#8b9299';
+
+                            $persentase = ($jumlah_segment / $total_siswa) * 100;
+                            ?>
+
+                            <div class="mb-3">
+
+                                <div class="d-flex justify-content-between mb-2">
+
+                                    <span class="fw-semibold small">
+                                        <?= htmlspecialchars($nama_segment) ?>
+                                    </span>
+
+                                    <span class="small text-muted">
+                                        <?= $jumlah_segment ?> siswa
+                                        (<?= number_format($persentase, 1) ?>%)
+                                    </span>
+
+                                </div>
+
+                                <div class="progress"
+                                     style="height: 11px; border-radius: 20px; background: #edf3f1;">
+
+                                    <div class="progress-bar"
+                                         role="progressbar"
+                                         style="width: <?= $persentase ?>%; background-color: <?= htmlspecialchars($warna_segment) ?>; border-radius: 20px;">
+
+                                    </div>
+
+                                </div>
+
+                            </div>
+
+                        <?php endforeach; ?>
+
+                    <?php else: ?>
+
+                        <div class="rfm-chart-empty">
+                            Belum terdapat data segmentasi siswa.
+                        </div>
+
+                    <?php endif; ?>
+
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="col-lg-5">
+
+            <div class="rfm-card">
+
+                <div class="rfm-card-header">
+
+                    <h5>
+                        <i class="bi bi-graph-up me-2"></i>
+                        Rata-rata Skor RFM
+                    </h5>
+
+                </div>
+
+                <div class="rfm-card-body">
+
+                    <div class="rfm-average-box">
+
+                        <div class="rfm-average-row">
+
+                            <span>
+                                <strong>Recency (R)</strong>
+                            </span>
+
+                            <strong><?= number_format($avg_r, 1) ?></strong>
+
+                        </div>
+
+                        <div class="progress mb-3" style="height: 9px;">
+                            <div class="progress-bar bg-success"
+                                 style="width: <?= ($avg_r / 3) * 100 ?>%">
+                            </div>
+                        </div>
+
+                        <div class="rfm-average-row">
+
+                            <span>
+                                <strong>Frequency (F)</strong>
+                            </span>
+
+                            <strong><?= number_format($avg_f, 1) ?></strong>
+
+                        </div>
+
+                        <div class="progress mb-3" style="height: 9px;">
+                            <div class="progress-bar bg-info"
+                                 style="width: <?= ($avg_f / 3) * 100 ?>%">
+                            </div>
+                        </div>
+
+                        <div class="rfm-average-row">
+
+                            <span>
+                                <strong>Monetary (M)</strong>
+                            </span>
+
+                            <strong><?= number_format($avg_m, 1) ?></strong>
+
+                        </div>
+
+                        <div class="progress" style="height: 9px;">
+                            <div class="progress-bar bg-warning"
+                                 style="width: <?= ($avg_m / 3) * 100 ?>%">
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <small class="text-muted d-block mt-3">
+                        Rata-rata skor setiap komponen RFM pada periode analisis terpilih.
+                    </small>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- TABEL HASIL ANALISIS RFM -->
+    <div class="rfm-card">
+
+        <div class="rfm-card-header">
+
+            <div>
+                <h5>
+                    <i class="bi bi-table me-2"></i>
+                    Hasil Analisis RFM Siswa
                 </h5>
-            </div>
-            <div class="card-body d-flex flex-column align-items-center justify-content-center">
-                <div style="position: relative; width: 100%; max-width: 320px;">
-                    <canvas id="rfmDonutChart"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
 
-    <!-- Average RFM Radar / Bar Chart -->
-    <div class="col-lg-5">
-        <div class="card h-100">
-            <div class="card-header bg-white">
-                <h5 class="card-title mb-0 fw-bold d-flex align-items-center gap-2">
-                    <i class="bi bi-bar-chart-fill text-mint"></i> Rata-rata Skor RFM (Skala 1 - 5)
-                </h5>
+                <small class="text-muted">
+                    Daftar hasil perhitungan dan segmentasi pembayaran siswa.
+                </small>
             </div>
-            <div class="card-body">
-                <canvas id="rfmBarChart" height="200"></canvas>
-                <div class="mt-3 p-3 bg-light rounded-3 small">
-                    <div class="d-flex justify-content-between mb-1">
-                        <span>Recency (R) Avg:</span>
-                        <strong class="text-mint-dark"><?= $avg_r ?> / 5.0</strong>
-                    </div>
-                    <div class="d-flex justify-content-between mb-1">
-                        <span>Frequency (F) Avg:</span>
-                        <strong class="text-primary"><?= $avg_f ?> / 5.0</strong>
-                    </div>
-                    <div class="d-flex justify-content-between">
-                        <span>Monetary (M) Avg:</span>
-                        <strong class="text-emerald"><?= $avg_m ?> / 5.0</strong>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
 
-<!-- RFM Analysis Data Table -->
-<div class="card shadow-sm border-0">
-    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-        <h5 class="card-title mb-0 fw-bold text-mint-deep">
-            <i class="bi bi-table me-2 text-mint"></i>Tabel Hasil Penilaian & Segmentasi Siswa
-        </h5>
-        <button type="button" class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#modalPanduanRFM">
-            <i class="bi bi-info-circle me-1"></i> Panduan Aturan RFM
-        </button>
-    </div>
-    <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0">
-            <thead>
-                <tr>
-                    <th style="width: 50px;">No</th>
-                    <th>Nama Siswa & NIS</th>
-                    <th>Paket Belajar</th>
-                    <th>Recency (R)</th>
-                    <th>Frequency (F)</th>
-                    <th>Monetary (M)</th>
-                    <th class="text-center">Skor RFM</th>
-                    <th>Kategori Segmentasi</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php if (empty($rfm_data)): ?>
-                    <tr><td colspan="8" class="text-center py-5 text-muted">Belum ada data analisis.</td></tr>
-                <?php else: ?>
-                    <?php $no = 1; foreach ($rfm_data as $row): ?>
+            <span class="badge text-bg-light">
+                <?= number_format($total_siswa) ?> Siswa
+            </span>
+
+        </div>
+
+        <div class="rfm-card-body">
+
+            <div class="table-responsive">
+
+                <table class="table rfm-table align-middle">
+
+                    <thead>
+
                         <tr>
-                            <td><?= $no++ ?></td>
-                            <td>
-                                <strong><?= htmlspecialchars($row['nama_siswa']) ?></strong>
-                                <div class="small text-muted">NIS: <?= htmlspecialchars($row['nis']) ?></div>
-                            </td>
-                            <td><span class="badge bg-light text-dark border"><?= htmlspecialchars($row['nama_paket'] ?? '-') ?></span></td>
-                            <td>
-                                <div class="fw-semibold text-dark"><?= $row['recency_days'] ?> hari lalu</div>
-                                <span class="badge bg-secondary-subtle text-secondary small">Skor: <?= $row['r_score'] ?></span>
-                            </td>
-                            <td>
-                                <div class="fw-semibold text-dark"><?= $row['frequency_count'] ?> kali bayar</div>
-                                <span class="badge bg-secondary-subtle text-secondary small">Skor: <?= $row['f_score'] ?></span>
-                            </td>
-                            <td>
-                                <div class="fw-semibold text-mint-deep"><?= format_rupiah($row['monetary_amount']) ?></div>
-                                <span class="badge bg-secondary-subtle text-secondary small">Skor: <?= $row['m_score'] ?></span>
-                            </td>
-                            <td class="text-center">
-                                <span class="badge bg-mint text-dark fs-6 px-3 py-1 font-monospace fw-bold">
-                                    <?= $row['total_rfm_score'] ?>
-                                </span>
-                                <div class="small text-muted font-monospace">(<?= $row['r_score'] ?><?= $row['f_score'] ?><?= $row['m_score'] ?>)</div>
-                            </td>
-                            <td>
-                                <?php
-                                $seg = $row['segmentasi'];
-                                if ($seg === 'Champions') {
-                                    echo '<span class="badge badge-mint fs-6 px-3 py-1"><i class="bi bi-star-fill me-1"></i>Champions</span>';
-                                } elseif ($seg === 'Loyal Students') {
-                                    echo '<span class="badge bg-primary-subtle text-primary border border-primary-subtle fs-6 px-3 py-1"><i class="bi bi-award me-1"></i>Loyal Students</span>';
-                                } elseif ($seg === 'Potential Loyalists') {
-                                    echo '<span class="badge bg-info-subtle text-info-emphasis border border-info-subtle fs-6 px-3 py-1"><i class="bi bi-arrow-up-right-circle me-1"></i>Potential Loyalist</span>';
-                                } elseif ($seg === 'Recent Customers') {
-                                    echo '<span class="badge bg-success-subtle text-success border border-success-subtle fs-6 px-3 py-1"><i class="bi bi-person-plus me-1"></i>Recent Customer</span>';
-                                } elseif ($seg === 'Promising') {
-                                    echo '<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle fs-6 px-3 py-1"><i class="bi bi-lightbulb me-1"></i>Promising</span>';
-                                } elseif ($seg === 'Need Attention') {
-                                    echo '<span class="badge badge-warning-soft fs-6 px-3 py-1"><i class="bi bi-exclamation-circle me-1"></i>Need Attention</span>';
-                                } elseif ($seg === 'At Risk') {
-                                    echo '<span class="badge badge-danger-soft fs-6 px-3 py-1"><i class="bi bi-exclamation-triangle me-1"></i>At Risk</span>';
-                                } else {
-                                    echo '<span class="badge bg-secondary fs-6 px-3 py-1"><i class="bi bi-moon-stars me-1"></i>Hibernating</span>';
-                                }
-                                ?>
+                            <th>No.</th>
+                            <th>Nama Siswa</th>
+                            <th>Paket Belajar</th>
+                            <th>Recency</th>
+                            <th>Frequency</th>
+                            <th>Monetary</th>
+                            <th>Total Skor</th>
+                            <th>Segmentasi</th>
+                            <th>Aksi</th>
+                        </tr>
+
+                    </thead>
+
+                    <tbody>
+
+                    <?php if (empty($rfm_data)): ?>
+
+                        <tr>
+                            <td colspan="9" class="rfm-empty">
+
+                                <div class="rfm-empty-icon">
+                                    <i class="bi bi-inbox"></i>
+                                </div>
+
+                                <h6>Belum Ada Data Analisis RFM</h6>
+
+                                <p>
+                                    Silakan lakukan perhitungan RFM terlebih dahulu.
+                                </p>
+
                             </td>
                         </tr>
-                    <?php endforeach; ?>
-                <?php endif; ?>
-            </tbody>
-        </table>
-    </div>
-</div>
 
-<!-- Modal Panduan Aturan RFM -->
-<div class="modal fade" id="modalPanduanRFM" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title fw-bold"><i class="bi bi-info-circle me-2"></i>Panduan Matriks Segmentasi RFM</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    <?php else: ?>
+
+                        <?php $no = 1; ?>
+
+                        <?php foreach ($rfm_data as $row): ?>
+
+                            <?php
+                            $nama_segment = $segment_mapping[$row['segmentasi']]
+                                ?? $row['segmentasi'];
+
+                            $warna_segment = $segment_colors[$nama_segment]
+                                ?? '#8b9299';
+
+                            $jumlah_belum_lunas = (int) $row['jumlah_belum_lunas'];
+                            $total_belum_lunas = (float) $row['total_belum_lunas'];
+                            ?>
+
+                            <tr>
+
+                                <td><?= $no++ ?></td>
+
+                                <td>
+                                    <div class="student-name">
+                                        <?= htmlspecialchars($row['nama_siswa']) ?>
+                                    </div>
+
+                                    <div class="student-nis">
+                                        NIS: <?= htmlspecialchars($row['nis']) ?>
+                                    </div>
+                                </td>
+
+                                <td>
+                                    <?= htmlspecialchars($row['nama_paket'] ?? '-') ?>
+                                </td>
+
+                                <td class="text-center">
+
+                                    <span class="rfm-score">
+                                        <?= (int) $row['r_score'] ?>
+                                    </span>
+
+                                    <div class="rfm-score-detail">
+                                        <?= (int) $row['recency_days'] ?> hari
+                                    </div>
+
+                                </td>
+
+                                <td class="text-center">
+
+                                    <span class="rfm-score">
+                                        <?= (int) $row['f_score'] ?>
+                                    </span>
+
+                                    <div class="rfm-score-detail">
+                                        <?= (int) $row['frequency_count'] ?> transaksi
+                                    </div>
+
+                                </td>
+
+                                <td class="text-center">
+
+                                    <span class="rfm-score">
+                                        <?= (int) $row['m_score'] ?>
+                                    </span>
+
+                                    <div class="rfm-score-detail">
+                                        <?= format_rupiah($row['monetary_amount']) ?>
+                                    </div>
+
+                                </td>
+
+                                <td class="text-center">
+
+                                    <span class="rfm-score">
+                                        <?= (int) $row['total_rfm_score'] ?>
+                                    </span>
+
+                                </td>
+
+                                <td>
+
+                                    <span class="rfm-segment-badge"
+                                          style="background: <?= htmlspecialchars($warna_segment) ?>20; color: <?= htmlspecialchars($warna_segment) ?>;">
+
+                                        <?= htmlspecialchars($nama_segment) ?>
+
+                                    </span>
+
+                                </td>
+
+                                <td>
+
+                                    <div class="d-flex flex-column align-items-center gap-2">
+
+                                        <!-- DETAIL PEMBAYARAN -->
+                                        <a href="<?= base_url(
+                                            'modules/pembayaran/index.php?tab=riwayat&search='
+                                            . urlencode($row['nama_siswa'])
+                                            . '&from=rfm&period='
+                                            . urlencode($periode)
+                                        ) ?>"
+                                           class="rfm-btn rfm-btn-secondary rfm-btn-small">
+
+                                            <i class="bi bi-receipt"></i>
+                                            Detail Pembayaran
+
+                                        </a>
+
+                                        <!-- KIRIM PENGINGAT -->
+                                        <?php if ($jumlah_belum_lunas > 0): ?>
+
+                                            <form action="<?= base_url('modules/rfm/kirimpengingat.php') ?>"
+                                                  method="POST"
+                                                  onsubmit="return confirm('Kirim pengingat tagihan kepada <?= htmlspecialchars(addslashes($row['nama_siswa'])) ?>?')">
+
+                                                <input type="hidden"
+                                                       name="id_siswa"
+                                                       value="<?= (int) $row['id_siswa'] ?>">
+
+                                                <input type="hidden"
+                                                       name="periode"
+                                                       value="<?= htmlspecialchars($periode) ?>">
+
+                                                <button type="submit"
+                                                        class="rfm-btn rfm-btn-primary rfm-btn-small">
+
+                                                    <i class="bi bi-bell"></i>
+                                                    Kirim Pengingat
+
+                                                </button>
+
+                                            </form>
+
+                                            <small class="text-warning">
+                                                <?= $jumlah_belum_lunas ?> tagihan ·
+                                                <?= format_rupiah($total_belum_lunas) ?>
+                                            </small>
+
+                                        <?php endif; ?>
+
+                                    </div>
+
+                                </td>
+
+                            </tr>
+
+                        <?php endforeach; ?>
+
+                    <?php endif; ?>
+
+                    </tbody>
+
+                </table>
+
             </div>
-            <div class="modal-body small">
-                <p>Metode <strong>RFM (Recency, Frequency, Monetary)</strong> mengelompokkan siswa bimbingan belajar berdasarkan 3 dimensi kunci:</p>
-                <div class="row g-3 mb-3">
-                    <div class="col-md-4">
-                        <div class="p-3 bg-light rounded border h-100">
-                            <h6 class="fw-bold text-mint-dark"><i class="bi bi-calendar-event me-1"></i> Recency (R)</h6>
-                            <p class="mb-0 text-muted">Jarak hari dari tanggal pembayaran terakhir siswa. Semakin baru, semakin tinggi skornya (1-5).</p>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="p-3 bg-light rounded border h-100">
-                            <h6 class="fw-bold text-primary"><i class="bi bi-repeat me-1"></i> Frequency (F)</h6>
-                            <p class="mb-0 text-muted">Frekuensi pembayaran lunas dalam periode analisis. Menunjukkan keaktifan rutin siswa.</p>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="p-3 bg-light rounded border h-100">
-                            <h6 class="fw-bold text-success"><i class="bi bi-cash-coin me-1"></i> Monetary (M)</h6>
-                            <p class="mb-0 text-muted">Total nilai nominal transaksi lunas yang telah dibayarkan oleh siswa.</p>
-                        </div>
-                    </div>
-                </div>
-                <h6 class="fw-bold mb-2">Strategi Tindakan Berdasarkan Segmentasi:</h6>
-                <ul class="list-group list-group-flush border rounded">
-                    <li class="list-group-item"><strong>Champions:</strong> Siswa teladan! Berikan apresiasi sertifikat dan pertahankan kenyamanan belajar.</li>
-                    <li class="list-group-item"><strong>Loyal Students:</strong> Tawarkan program bimbingan lanjutan atau diskon teman belajar.</li>
-                    <li class="list-group-item"><strong>Recent Customers:</strong> Siswa baru bergabung. Berikan sambutan hangat dan modul belajar terbaik.</li>
-                    <li class="list-group-item"><strong>Need Attention / At Risk:</strong> Pembayaran tertunda atau kehadiran menurun. Hubungi siswa/orang tua untuk pendampingan.</li>
-                    <li class="list-group-item"><strong>Hibernating:</strong> Berikan penawaran reaktivasi atau program intensif menjelang ujian sekolah.</li>
-                </ul>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Tutup</button>
-            </div>
+
         </div>
+
     </div>
+
 </div>
 
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    // 1. Donut Chart Segmentasi
-    const ctxDonut = document.getElementById('rfmDonutChart');
-    if (ctxDonut) {
-        new Chart(ctxDonut, {
-            type: 'doughnut',
-            data: {
-                labels: [
-                    'Champions', 'Loyal Students', 'Potential Loyalists', 
-                    'Recent Customers', 'Promising', 'Need Attention', 'At Risk', 'Hibernating'
-                ],
-                datasets: [{
-                    data: [
-                        <?= $segment_counts['Champions'] ?>,
-                        <?= $segment_counts['Loyal Students'] ?>,
-                        <?= $segment_counts['Potential Loyalists'] ?>,
-                        <?= $segment_counts['Recent Customers'] ?>,
-                        <?= $segment_counts['Promising'] ?>,
-                        <?= $segment_counts['Need Attention'] ?>,
-                        <?= $segment_counts['At Risk'] ?>,
-                        <?= $segment_counts['Hibernating'] ?>
-                    ],
-                    backgroundColor: [
-                        '#10b981', // Champions (Green)
-                        '#0ea5e9', // Loyal (Sky Blue)
-                        '#8b5cf6', // Potential (Purple)
-                        '#98EDE1', // Recent (Mint)
-                        '#f59e0b', // Promising (Amber)
-                        '#f97316', // Need Attention (Orange)
-                        '#ef4444', // At Risk (Red)
-                        '#64748b'  // Hibernating (Gray)
-                    ],
-                    borderWidth: 2,
-                    borderColor: '#ffffff'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                plugins: {
-                    legend: {
-                        position: 'bottom',
-                        labels: { boxWidth: 12, font: { size: 10 } }
-                    }
-                }
-            }
-        });
-    }
+<!-- MODAL PANDUAN RFM -->
+<div class="modal fade"
+     id="modalPanduanRFM"
+     tabindex="-1"
+     aria-hidden="true">
 
-    // 2. Bar Chart R, F, M Average
-    const ctxBar = document.getElementById('rfmBarChart');
-    if (ctxBar) {
-        new Chart(ctxBar, {
-            type: 'bar',
-            data: {
-                labels: ['Recency (R)', 'Frequency (F)', 'Monetary (M)'],
-                datasets: [{
-                    label: 'Rata-rata Skor (1-5)',
-                    data: [<?= $avg_r ?>, <?= $avg_f ?>, <?= $avg_m ?>],
-                    backgroundColor: ['#98EDE1', '#0ea5e9', '#10b981'],
-                    borderColor: ['#0f766e', '#0369a1', '#047857'],
-                    borderWidth: 1.5,
-                    borderRadius: 8
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        max: 5,
-                        ticks: { stepSize: 1 }
-                    }
-                },
-                plugins: {
-                    legend: { display: false }
-                }
-            }
-        });
-    }
-});
-</script>
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+
+        <div class="modal-content">
+
+            <div class="modal-header">
+
+                <h5 class="modal-title">
+                    <i class="bi bi-info-circle me-2"></i>
+                    Panduan Analisis RFM
+                </h5>
+
+                <button type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal">
+                </button>
+
+            </div>
+
+            <div class="modal-body">
+
+                <p>
+                    Analisis RFM digunakan untuk mengetahui pola pembayaran
+                    siswa berdasarkan tiga komponen.
+                </p>
+
+                <div class="list-group">
+
+                    <div class="list-group-item">
+                        <strong>Recency (R)</strong>
+                        <p class="mb-0">
+                            Mengukur jarak waktu sejak pembayaran terakhir siswa.
+                        </p>
+                    </div>
+
+                    <div class="list-group-item">
+                        <strong>Frequency (F)</strong>
+                        <p class="mb-0">
+                            Mengukur jumlah transaksi pembayaran siswa.
+                        </p>
+                    </div>
+
+                    <div class="list-group-item">
+                        <strong>Monetary (M)</strong>
+                        <p class="mb-0">
+                            Mengukur total nominal pembayaran siswa.
+                        </p>
+                    </div>
+
+                    <div class="list-group-item">
+                        <strong>Segmentasi Siswa</strong>
+                        <p class="mb-0">
+                            Hasil pengelompokan siswa berdasarkan skor RFM
+                            untuk membantu Admin memahami pola pembayaran.
+                        </p>
+                    </div>
+
+                </div>
+
+            </div>
+
+            <div class="modal-footer">
+
+                <button type="button"
+                        class="rfm-btn rfm-btn-primary"
+                        data-bs-dismiss="modal">
+
+                    Tutup
+
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
 
 <?php require_once BASEPATH . '/includes/footer.php'; ?>
-

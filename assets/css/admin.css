@@ -1,0 +1,643 @@
+:root {
+    --admin-primary: #98EDE1;
+    --admin-secondary: #E8FDFF;
+    --admin-dark: #173B38;
+    --admin-accent: #287E72;
+    --admin-text: #172B2A;
+    --admin-muted: #718582;
+    --admin-border: #E2EFEC;
+    --admin-bg: #F6FBFA;
+    --admin-white: #FFFFFF;
+    --admin-shadow: 0 5px 22px rgba(33, 105, 93, .06);
+}
+
+/* GLOBAL */
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: 'Poppins', sans-serif !important;
+    color: var(--admin-text);
+    background: var(--admin-bg) !important;
+    font-size: 13px;
+}
+
+a {
+    text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+    font-family: 'Poppins', sans-serif;
+}
+
+/* MAIN WRAPPER */
+
+.app-wrapper {
+    display: flex;
+    min-height: 100vh;
+    width: 100%;
+}
+
+/* SIDEBAR */
+
+.app-sidebar {
+    position: fixed;
+    top: 5px;
+    left: 5px;
+    bottom: 5px;
+    width: 300px;
+    background: var(--admin-primary);
+    border-radius: 18px;
+    padding: 24px 13px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    z-index: 1050;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 3px 12px rgba(23, 83, 75, .08);
+}
+
+.sidebar-brand {
+    text-align: center;
+    padding: 10px 5px 28px;
+}
+
+.sidebar-brand-icon {
+    width: 65px;
+    height: 65px;
+    margin: 0 auto 10px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: var(--admin-white);
+    color: var(--admin-accent);
+    border-radius: 50%;
+    font-size: 30px;
+}
+
+.sidebar-brand-text h5 {
+    color: var(--admin-dark);
+    font-size: 19px;
+    font-weight: 800;
+    margin: 0;
+}
+
+.sidebar-brand-text small {
+    color: #315E57;
+    font-size: 11px;
+}
+
+.sidebar-menu {
+    flex: 1;
+}
+
+.sidebar-heading {
+    padding: 14px 12px 8px;
+    color: #39756D;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+.sidebar-link {
+    min-height: 45px;
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    padding: 11px 14px;
+    margin-bottom: 5px;
+    border-radius: 10px;
+    color: var(--admin-dark);
+    font-size: 12.5px;
+    font-weight: 500;
+    transition: .2s ease;
+}
+
+.sidebar-link i {
+    width: 20px;
+    flex-shrink: 0;
+    text-align: center;
+    font-size: 17px;
+}
+
+.sidebar-link:hover,
+.sidebar-link.active {
+    background: var(--admin-secondary);
+    color: #176D63;
+}
+
+.sidebar-link.text-danger {
+    color: #A93232 !important;
+}
+
+.sidebar-link.text-danger:hover {
+    background: #FFF0F0;
+}
+
+.sidebar-footer {
+    padding: 16px 8px 5px;
+    border-top: 1px solid rgba(23, 59, 56, .12);
+}
+
+/* MAIN AREA */
+
+.app-main {
+    display: flex;
+    flex-direction: column;
+    width: calc(100% - 310px);
+    min-height: 100vh;
+    margin-left: 310px;
+    padding: 0 25px;
+}
+
+/* NAVBAR */
+
+.app-navbar {
+    min-height: 82px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 15px;
+    padding: 12px 22px;
+    margin: 0 -25px 25px;
+    background: var(--admin-white);
+    border-bottom: 1px solid var(--admin-border);
+    box-shadow: 0 3px 14px rgba(30, 80, 72, .035);
+}
+
+.text-mint-deep {
+    color: var(--admin-dark) !important;
+}
+
+.text-mint {
+    color: var(--admin-accent) !important;
+}
+
+.text-mint-darker {
+    color: var(--admin-dark) !important;
+}
+
+.bg-mint {
+    background: var(--admin-primary) !important;
+}
+
+.bg-dark-mint {
+    background: var(--admin-accent) !important;
+}
+
+.badge-mint {
+    background: var(--admin-secondary);
+    color: var(--admin-dark);
+}
+
+.user-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+/* CONTENT */
+
+.content-body {
+    width: 100%;
+    flex: 1;
+    padding-bottom: 30px;
+}
+
+.content-body h1,
+.content-body h2,
+.content-body h3,
+.content-body h4,
+.content-body h5,
+.content-body h6 {
+    color: var(--admin-dark);
+    font-weight: 700;
+}
+
+.content-body p {
+    line-height: 1.7;
+}
+
+.content-body .text-muted {
+    color: var(--admin-muted) !important;
+}
+
+/* PAGE HEADER */
+
+.content-body .page-header {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    width: 100%;
+    margin-bottom: 22px;
+    padding: 10px 2px;
+}
+
+/* CARD */
+
+.content-body .card {
+    border: 1px solid var(--admin-border);
+    border-radius: 16px;
+    box-shadow: var(--admin-shadow);
+    background: var(--admin-white);
+}
+
+.content-body .card-header {
+    padding: 17px 20px;
+    background: var(--admin-white);
+    border-bottom: 1px solid var(--admin-border);
+    border-radius: 16px 16px 0 0;
+}
+
+.content-body .card-body {
+    padding: 20px;
+}
+
+/* BUTTON UMUM */
+
+.content-body .btn {
+    border-radius: 9px;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 9px 15px;
+}
+
+.content-body .btn-primary {
+    background: var(--admin-accent);
+    border-color: var(--admin-accent);
+}
+
+.content-body .btn-primary:hover {
+    background: var(--admin-dark);
+    border-color: var(--admin-dark);
+}
+
+.content-body .btn-success {
+    background: #398D79;
+    border-color: #398D79;
+}
+
+.content-body .btn-outline-secondary {
+    border-color: var(--admin-border);
+}
+
+/* FORM */
+
+.content-body .form-control,
+.content-body .form-select {
+    min-height: 40px;
+    border: 1px solid #DCEAE7;
+    border-radius: 9px;
+    font-size: 12px;
+    padding: 9px 12px;
+}
+
+.content-body .form-control:focus,
+.content-body .form-select:focus {
+    border-color: var(--admin-accent);
+    box-shadow: 0 0 0 3px rgba(40, 126, 114, .10);
+}
+
+.content-body label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--admin-dark);
+    margin-bottom: 6px;
+}
+
+/* TABLE */
+
+.content-body .table-responsive {
+    border-radius: 12px;
+}
+
+.content-body .table {
+    margin-bottom: 0;
+    vertical-align: middle;
+    font-size: 12px;
+}
+
+.content-body .table thead th {
+    padding: 14px 12px;
+    background: #EAF9F6;
+    color: var(--admin-dark);
+    border-bottom: 1px solid var(--admin-border);
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.content-body .table tbody td {
+    padding: 13px 12px;
+    color: var(--admin-text);
+    border-color: #EDF3F1;
+}
+
+.content-body .table tbody tr:hover {
+    background: #F7FCFB;
+}
+
+/* ALERT */
+
+.content-body .alert {
+    border-radius: 10px;
+    font-size: 12px;
+}
+
+/* MODAL */
+
+.content-body .modal-content {
+    border: 0;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 15px 45px rgba(0, 0, 0, .12);
+}
+
+.content-body .modal-header {
+    background: var(--admin-secondary);
+    border-bottom: 1px solid var(--admin-border);
+}
+
+.content-body .modal-title {
+    color: var(--admin-dark);
+    font-weight: 700;
+}
+
+/* PAGINATION */
+
+.content-body .pagination .page-link {
+    color: var(--admin-accent);
+    font-size: 12px;
+}
+
+.content-body .pagination .active .page-link {
+    background: var(--admin-accent);
+    border-color: var(--admin-accent);
+    color: white;
+}
+
+/* FOOTER */
+
+.app-main > footer {
+    margin-top: auto;
+    margin-left: -25px;
+    margin-right: -25px;
+    font-size: 10px;
+}
+
+/* SCROLLBAR */
+
+.app-sidebar::-webkit-scrollbar {
+    width: 5px;
+}
+
+.app-sidebar::-webkit-scrollbar-thumb {
+    background: rgba(23, 59, 56, .25);
+    border-radius: 10px;
+}
+
+/* =====================================
+   TOMBOL TAMBAH SISWA
+===================================== */
+
+.content-body .btn-add-siswa {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 48px;
+    padding: 12px 25px;
+    background: #287E72;
+    border: 1px solid #287E72;
+    border-radius: 11px;
+    color: #FFFFFF;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 4px 12px rgba(40, 126, 114, .13);
+    transition: all .25s ease;
+}
+
+.content-body .btn-add-siswa i {
+    font-size: 18px;
+    transition: transform .25s ease;
+}
+
+.content-body .btn-add-siswa:hover {
+    background: #173B38;
+    border-color: #173B38;
+    color: #FFFFFF;
+    transform: translateY(-2px);
+    box-shadow: 0 7px 17px rgba(23, 59, 56, .16);
+}
+
+.content-body .btn-add-siswa:hover i {
+    transform: rotate(90deg);
+}
+
+.content-body .btn-add-siswa:active {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+/* JARAK PENCARIAN SISWA */
+
+.content-body .card.mb-4 {
+    margin-top: 0;
+    margin-bottom: 24px !important;
+    border-radius: 16px;
+}
+
+/* =====================================
+   TOMBOL TAMBAH PAKET
+===================================== */
+
+.content-body .btn-add-paket {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 48px;
+    padding: 12px 25px;
+    background: #287E72;
+    border: 1px solid #287E72;
+    border-radius: 11px;
+    color: #FFFFFF;
+    font-family: 'Poppins', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 4px 12px rgba(40, 126, 114, .13);
+    cursor: pointer;
+    transition: all .25s ease;
+}
+
+.content-body .btn-add-paket i {
+    font-size: 18px;
+    transition: transform .25s ease;
+}
+
+.content-body .btn-add-paket:hover {
+    background: #173B38;
+    border-color: #173B38;
+    color: #FFFFFF;
+    transform: translateY(-2px);
+    box-shadow: 0 7px 17px rgba(23, 59, 56, .16);
+}
+
+.content-body .btn-add-paket:hover i {
+    transform: rotate(90deg);
+}
+
+.content-body .btn-add-paket:active {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+/* KHUSUS HEADER HALAMAN PAKET
+   JARAK TOMBOL KE KARTU DIPERDEKAT */
+
+.content-body .page-header:has(.btn-add-paket) {
+    margin-bottom: 6px;
+    padding: 4px 2px;
+}
+
+.content-body .row.g-4 {
+    margin-top: 0;
+}
+
+/* RESPONSIVE */
+
+@media (max-width: 991px) {
+
+    .app-sidebar {
+        width: 260px;
+        transform: translateX(-110%);
+        transition: transform .25s ease;
+    }
+
+    .app-sidebar.show {
+        transform: translateX(0);
+    }
+
+    .app-main {
+        width: 100%;
+        margin-left: 0;
+        padding: 0 18px;
+    }
+
+    .app-navbar {
+        margin-left: -18px;
+        margin-right: -18px;
+    }
+
+    .app-main > footer {
+        margin-left: -18px;
+        margin-right: -18px;
+    }
+}
+
+@media (max-width: 576px) {
+
+    .app-navbar {
+        min-height: 70px;
+        padding: 10px 12px;
+    }
+
+    .app-main {
+        padding: 0 12px;
+    }
+
+    .app-navbar {
+        margin-left: -12px;
+        margin-right: -12px;
+    }
+
+    .app-main > footer {
+        margin-left: -12px;
+        margin-right: -12px;
+    }
+
+    .content-body .card-body {
+        padding: 14px;
+    }
+
+    .sidebar-brand-text h5 {
+        font-size: 17px;
+    }
+
+    .content-body .btn-add-siswa,
+    .content-body .btn-add-paket {
+        min-height: 43px;
+        padding: 10px 16px;
+        font-size: 12px;
+    }
+
+    .content-body .page-header:has(.btn-add-paket) {
+        margin-bottom: 6px;
+        padding: 4px 2px;
+    }
+
+    .content-body .page-header:has(.btn-add-siswa) {
+        margin-bottom: 16px;
+    }
+}
+/* TOMBOL TAMBAH STANDAR SELURUH FITUR */
+
+.content-body .btn-add-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 48px;
+    padding: 12px 25px;
+    background: #287E72;
+    border: 1px solid #287E72;
+    border-radius: 11px;
+    color: #FFFFFF;
+    font-family: 'Poppins', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 4px 12px rgba(40, 126, 114, .13);
+    cursor: pointer;
+    transition: all .25s ease;
+}
+
+.content-body .btn-add-action i {
+    font-size: 18px;
+    transition: transform .25s ease;
+}
+
+.content-body .btn-add-action:hover {
+    background: #173B38;
+    border-color: #173B38;
+    color: #FFFFFF;
+    transform: translateY(-2px);
+    box-shadow: 0 7px 17px rgba(23, 59, 56, .16);
+}
+
+.content-body .btn-add-action:hover i {
+    transform: rotate(90deg);
+}
+
+.content-body .page-header:has(.btn-add-action) {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    margin-bottom: 8px;
+    padding: 4px 2px;
+}
+
+@media (max-width: 576px) {
+    .content-body .btn-add-action {
+        min-height: 43px;
+        padding: 10px 16px;
+        font-size: 12px;
+    }
+}

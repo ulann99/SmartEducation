@@ -1,82 +1,113 @@
-
 <?php
 session_start();
-require_once "config/koneksi.php";
 
-// Pemeriksaan login
+require_once __DIR__ . "/config/koneksi.php";
+define("BASEPATH", __DIR__);
+
+// =====================================
+// PEMERIKSAAN LOGIN
+// =====================================
+
 if (!isset($_SESSION["login"]) || $_SESSION["login"] !== true) {
     header("Location: modules/auth/login.php");
     exit;
 }
 
-$nama = $_SESSION["nama_lengkap"] ?? "Admin";
+$nama = $_SESSION["nama_lengkap"] ?? "Administrator";
 $role = $_SESSION["role"] ?? "admin";
 
-// Fungsi menghitung jumlah data
-function jumlahData($conn, $tabel) {
-    $daftarTabel = ["siswa", "kelas", "tutor", "pembayaran"];
+if (!in_array($role, ["admin", "superadmin"], true)) {
+    header("Location: dashboard_siswa.php");
+    exit;
+}
 
-    if (!in_array($tabel, $daftarTabel)) {
+// =====================================
+// KONFIGURASI TEMPLATE
+// =====================================
+
+define("BASEPATH", dirname(__DIR__));
+
+$current_page = "dashboard";
+$page_title = "Dashboard";
+
+// =====================================
+// FUNGSI JUMLAH DATA
+// =====================================
+
+function jumlahData($conn, $tabel)
+{
+    $daftarTabel = ["siswa", "kelas", "tutor"];
+
+    if (!in_array($tabel, $daftarTabel, true)) {
         return 0;
     }
 
-    $query = mysqli_query($conn, "SELECT COUNT(*) AS total FROM `$tabel`");
+    $query = mysqli_query(
+        $conn,
+        "SELECT COUNT(*) AS total FROM `$tabel`"
+    );
 
     if (!$query) {
         return 0;
     }
 
     $data = mysqli_fetch_assoc($query);
-    return (int) $data["total"];
+
+    return (int)($data["total"] ?? 0);
 }
 
-// Statistik
+// =====================================
+// STATISTIK DASHBOARD
+// =====================================
+
 $totalSiswa = jumlahData($conn, "siswa");
 $totalKelas = jumlahData($conn, "kelas");
 $totalTutor = jumlahData($conn, "tutor");
 
-// Total pembayaran yang sudah lunas
 $totalPembayaran = 0;
 
 $queryPembayaran = mysqli_query(
     $conn,
-    "SELECT SUM(nominal) AS total
+    "SELECT COALESCE(SUM(nominal), 0) AS total
      FROM pembayaran
      WHERE status_pembayaran = 'Lunas'"
 );
 
 if ($queryPembayaran) {
     $dataPembayaran = mysqli_fetch_assoc($queryPembayaran);
-    $totalPembayaran = (float) ($dataPembayaran["total"] ?? 0);
+    $totalPembayaran = (float)($dataPembayaran["total"] ?? 0);
 }
 
-// Grafik pembayaran enam bulan terakhir
+// =====================================
+// GRAFIK PEMBAYARAN ENAM BULAN TERAKHIR
+// =====================================
+
 $labelBulan = [];
 $dataGrafikPembayaran = [];
-
-
 
 $queryGrafik = mysqli_query(
     $conn,
     "SELECT
         DATE_FORMAT(MIN(tanggal_bayar), '%b %Y') AS bulan,
         SUM(nominal) AS total
-    FROM pembayaran
-    WHERE status_pembayaran = 'Lunas'
-        AND tanggal_bayar >= DATE_SUB(CURDATE(), INTERVAL 5 MONTH)
-    GROUP BY YEAR(tanggal_bayar), MONTH(tanggal_bayar)
-    ORDER BY MIN(tanggal_bayar)"
+     FROM pembayaran
+     WHERE status_pembayaran = 'Lunas'
+       AND tanggal_bayar >= DATE_SUB(CURDATE(), INTERVAL 5 MONTH)
+     GROUP BY YEAR(tanggal_bayar), MONTH(tanggal_bayar)
+     ORDER BY YEAR(tanggal_bayar), MONTH(tanggal_bayar)"
 );
-
 
 if ($queryGrafik) {
     while ($row = mysqli_fetch_assoc($queryGrafik)) {
         $labelBulan[] = $row["bulan"];
-        $dataGrafikPembayaran[] = (float) $row["total"];
+        $dataGrafikPembayaran[] = (float)$row["total"];
     }
 }
 
-// Data segmentasi RFM
+// =====================================
+// SEGMENTASI RFM
+// =====================================
+
 $jumlahRutin = 0;
 $jumlahPengingat = 0;
 $jumlahBerisiko = 0;
@@ -90,23 +121,27 @@ $queryRFM = mysqli_query(
 
 if ($queryRFM) {
     while ($row = mysqli_fetch_assoc($queryRFM)) {
-        $segmentasi = strtolower($row["segmentasi"]);
-        $total = (int) $row["total"];
+        $segmentasi = strtolower($row["segmentasi"] ?? "");
+        $total = (int)$row["total"];
 
         if (strpos($segmentasi, "rutin") !== false) {
             $jumlahRutin += $total;
         } elseif (strpos($segmentasi, "pengingat") !== false) {
             $jumlahPengingat += $total;
-        } elseif (strpos($segmentasi, "risiko") !== false ||
-                  strpos($segmentasi, "berisiko") !== false) {
+        } elseif (strpos($segmentasi, "risiko") !== false) {
             $jumlahBerisiko += $total;
         }
     }
 }
 
+// =====================================
+// PERSENTASE RFM
+// =====================================
+
 $totalRFM = $jumlahRutin + $jumlahPengingat + $jumlahBerisiko;
 
-function persentase($jumlah, $total) {
+function persentase($jumlah, $total)
+{
     return $total > 0 ? round(($jumlah / $total) * 100) : 0;
 }
 
@@ -114,580 +149,504 @@ $persenRutin = persentase($jumlahRutin, $totalRFM);
 $persenPengingat = persentase($jumlahPengingat, $totalRFM);
 $persenBerisiko = persentase($jumlahBerisiko, $totalRFM);
 
-// Data untuk grafik
-$labelBulanJSON = json_encode($labelBulan);
-$dataPembayaranJSON = json_encode($dataGrafikPembayaran);
+// =====================================
+// DATA GRAFIK JSON
+// =====================================
+
+$labelBulanJSON = json_encode(
+    $labelBulan,
+    JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
+);
+
+$dataPembayaranJSON = json_encode(
+    $dataGrafikPembayaran,
+    JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
+);
+
+// =====================================
+// TEMPLATE HEADER
+// =====================================
+require_once __DIR__ . "/includes/header.php";
+require_once __DIR__ . "/includes/sidebar.php";
+require_once __DIR__ . "/includes/navbar.php";
 ?>
 
-<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- =====================================
+     STYLE KHUSUS DASHBOARD
+====================================== -->
 
-    <title>Dashboard - Smart Education</title>
+<style>
+/* AREA DASHBOARD */
 
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-    <style>
-
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-    font-family: 'Poppins', sans-serif;
+.dashboard-content {
+    width: 100%;
 }
 
-body {
-    min-height: 100vh;
-    background: #E8FDFF;
-    color: #000;
+/* SAMBUTAN */
+
+.dashboard-welcome {
+    margin-bottom: 24px;
 }
 
-/* SIDEBAR */
-.sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 468px;
-    height: 100vh;
-    background: #98EDE1;
-    border-radius: 0 22px 22px 0;
-    padding: 24px 0 16px;
-    overflow-y: auto;
-    overflow-x: hidden;
-    z-index: 100;
-}
-
-.brand {
-    text-align: center;
-    padding: 5px 15px 20px;
-}
-
-.brand img {
-    width: 58px;
-    height: 58px;
-    object-fit: contain;
+.dashboard-welcome h2 {
+    color: #173B38;
+    font-size: 22px;
+    font-weight: 700;
     margin-bottom: 6px;
 }
 
-.brand h2 {
-    font-size: 19px;
-    font-weight: 800;
+.dashboard-welcome p {
+    color: #718582;
+    font-size: 13px;
+    margin-bottom: 0;
 }
 
-.brand p {
-    font-size: 10px;
-    margin-top: 2px;
-}
+/* KARTU STATISTIK */
 
-.admin-profile {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    padding: 8px 42px 22px;
-}
-
-.avatar {
-    width: 60px;
-    height: 60px;
-    flex: 0 0 60px;
-    border-radius: 50%;
-    background: #fff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 22px;
-    font-weight: 700;
-}
-
-.admin-profile h3 {
-    font-size: 19px;
-    font-weight: 600;
-}
-
-.menu a {
-    display: flex;
-    align-items: center;
-    gap: 17px;
-    min-height: 49px;
-    padding: 8px 26px 8px 72px;
-    color: #000;
-    text-decoration: none;
-    font-size: 17px;
-    font-weight: 500;
-    transition: background .2s ease;
-}
-
-.menu a:hover,
-.menu a.active {
-    background: #E8FDFF;
-}
-
-.menu-icon {
-    width: 27px;
-    flex: 0 0 27px;
-    text-align: center;
-    font-size: 25px;
-    line-height: 1;
-    color: #173B48;
-}
-
-.menu a.logout {
-    color: #9b2929;
-    margin-top: 4px;
-}
-
-/* AREA UTAMA */
-.main-content {
-    width: calc(100% - 468px);
-    min-height: 100vh;
-    margin-left: 468px;
-    padding: 30px 38px 45px 54px;
-}
-
-.navbar {
-    height: 95px;
-    width: 100%;
-    background: #98EDE1;
-    border-radius: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    padding: 0 42px;
-    margin-bottom: 35px;
-}
-
-.notification {
-    font-size: 30px;
-    color: #163f47;
-    text-decoration: none;
-    line-height: 1;
-}
-
-.welcome {
-    margin: 0 0 30px 16px;
-}
-
-.welcome h1 {
-    font-size: clamp(26px, 2.5vw, 38px);
-    line-height: 1.3;
-    font-weight: 700;
-    margin-bottom: 10px;
-}
-
-.welcome p {
-    font-size: 17px;
-    line-height: 1.6;
-}
-
-/* KARTU RINGKASAN */
-.stats {
+.dashboard-stats {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 18px;
-    margin-bottom: 28px;
+    margin-bottom: 24px;
 }
 
-.stat-card {
+.dashboard-stat-card {
     min-width: 0;
-    min-height: 130px;
-    padding: 22px 10px;
-    border-radius: 20px;
-    background: #98EDE1;
+    background: #FFFFFF;
+    border: 1px solid #E2EFEC;
+    border-radius: 15px;
+    padding: 19px;
     display: flex;
-    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    box-shadow: 0 4px 15px rgba(33, 105, 93, .045);
+    transition: .2s ease;
+}
+
+.dashboard-stat-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(33, 105, 93, .09);
+}
+
+.dashboard-stat-icon {
+    width: 47px;
+    height: 47px;
+    min-width: 47px;
+    display: flex;
     align-items: center;
     justify-content: center;
-    text-align: center;
+    border-radius: 12px;
+    background: #E8FDFF;
+    color: #287E72;
+    font-size: 21px;
 }
 
-.stat-card h3 {
-    font-size: 17px;
-    font-weight: 600;
+.dashboard-stat-info {
+    min-width: 0;
+}
+
+.dashboard-stat-info p {
+    color: #718582;
+    font-size: 12px;
     margin-bottom: 5px;
 }
 
-.stat-card .number {
-    font-size: 30px;
+.dashboard-stat-info h3 {
+    color: #173B38;
+    font-size: 23px;
     font-weight: 700;
-}
-
-.stat-card .money {
-    font-size: clamp(14px, 1.25vw, 19px);
-    font-weight: 600;
+    margin: 0;
     overflow-wrap: anywhere;
 }
 
-/* PANEL GRAFIK: KEDUANYA SAMA LEBAR */
-.chart-grid {
+.dashboard-stat-info h3.money {
+    font-size: 16px;
+}
+
+/* KARTU GRAFIK */
+
+.dashboard-chart-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 18px;
-    width: 100%;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    gap: 20px;
     align-items: stretch;
 }
 
-.chart-card {
+.dashboard-panel {
     min-width: 0;
-    width: 100%;
-    min-height: 420px;
-    padding: 30px;
-    border-radius: 20px;
-    background: #98EDE1;
-    overflow: hidden;
+    background: #FFFFFF;
+    border: 1px solid #E2EFEC;
+    border-radius: 15px;
+    padding: 22px;
+    box-shadow: 0 4px 15px rgba(33, 105, 93, .045);
 }
 
-.chart-card h2 {
-    text-align: center;
-    font-size: 21px;
+.dashboard-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 22px;
+}
+
+.dashboard-panel-header h3 {
+    color: #173B38;
+    font-size: 15px;
     font-weight: 600;
-    margin-bottom: 28px;
+    margin: 0;
 }
 
-.chart-container {
+.dashboard-panel-label {
+    background: #E8FDFF;
+    color: #287E72;
+    font-size: 10px;
+    padding: 6px 11px;
+    border-radius: 20px;
+    white-space: nowrap;
+}
+
+.dashboard-chart-container {
     position: relative;
     width: 100%;
-    max-width: 100%;
-    height: 300px;
-    min-width: 0;
+    height: 285px;
 }
 
-.chart-container canvas {
-    display: block;
-    max-width: 100%;
-}
+/* SEGMENTASI RFM */
 
-.rfm-content {
-    min-width: 0;
-    min-height: 300px;
-    padding: 0 5px;
+.dashboard-rfm-list {
     display: flex;
     flex-direction: column;
     justify-content: center;
-    gap: 30px;
+    gap: 25px;
+    min-height: 285px;
 }
 
-.rfm-item {
+.dashboard-rfm-item {
     display: grid;
-    grid-template-columns: 22px minmax(0, 1fr) auto;
+    grid-template-columns: 11px minmax(0, 1fr) auto;
     align-items: center;
-    gap: 12px;
-    font-size: 13px;
+    gap: 11px;
 }
 
-.rfm-dot {
-    width: 20px;
-    height: 20px;
+.dashboard-rfm-dot {
+    width: 11px;
+    height: 11px;
     border-radius: 50%;
 }
 
-.orange { background: #FF9B6A; }
-.purple { background: #B69AC8; }
-.green { background: #509F94; }
-
-.rfm-percent {
-    font-weight: 500;
+.dashboard-rfm-name {
+    color: #435B56;
+    font-size: 12px;
 }
 
-.empty-rfm {
+.dashboard-rfm-percent {
+    color: #173B38;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.dashboard-rfm-progress {
+    grid-column: 2 / 4;
+    height: 7px;
+    margin-top: -3px;
+    overflow: hidden;
+    background: #EDF5F3;
+    border-radius: 20px;
+}
+
+.dashboard-rfm-progress span {
+    display: block;
+    height: 100%;
+    border-radius: 20px;
+}
+
+.rfm-orange {
+    background: #F5A16F;
+}
+
+.rfm-purple {
+    background: #AD91C8;
+}
+
+.rfm-green {
+    background: #509F94;
+}
+
+.dashboard-empty {
+    min-height: 285px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     text-align: center;
-    font-size: 14px;
-    color: #315e55;
+    color: #718582;
+    font-size: 12px;
 }
 
-/* LAYAR LAPTOP KECIL */
+/* RESPONSIVE */
+
 @media (max-width: 1200px) {
-    .sidebar {
-        width: 270px;
-    }
-
-    .main-content {
-        width: calc(100% - 270px);
-        margin-left: 270px;
-        padding: 25px 24px;
-    }
-
-    .menu a {
-        padding-left: 35px;
-    }
-
-    .stats {
+    .dashboard-stats {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .chart-grid {
-        grid-template-columns: minmax(0, 1fr);
+    .dashboard-chart-grid {
+        grid-template-columns: 1fr;
     }
 }
 
-/* LAYAR HP */
-@media (max-width: 650px) {
-    .sidebar {
-        width: 75px;
-        padding: 20px 0;
+@media (max-width: 575px) {
+    .dashboard-welcome h2 {
+        font-size: 19px;
     }
 
-    .brand h2,
-    .brand p,
-    .admin-profile h3,
-    .menu a span:not(.menu-icon) {
-        display: none;
+    .dashboard-welcome p {
+        font-size: 11px;
     }
 
-    .brand img {
-        width: 42px;
-        height: 42px;
-    }
-
-    .admin-profile {
-        justify-content: center;
-        padding: 10px 5px 25px;
-    }
-
-    .avatar {
-        width: 43px;
-        height: 43px;
-        flex-basis: 43px;
-        font-size: 17px;
-    }
-
-    .menu a {
-        justify-content: center;
-        padding: 14px 5px;
-        min-height: 50px;
-    }
-
-    .main-content {
-        width: calc(100% - 75px);
-        margin-left: 75px;
-        padding: 15px 12px 25px;
-    }
-
-    .navbar {
-        height: 60px;
-        margin-bottom: 23px;
-        border-radius: 14px;
-        padding: 0 20px;
-    }
-
-    .welcome {
-        margin-left: 3px;
-    }
-
-    .welcome h1 {
-        font-size: 21px;
-    }
-
-    .welcome p {
-        font-size: 12px;
-    }
-
-    .stats {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+    .dashboard-stats {
         gap: 10px;
     }
 
-    .stat-card {
-        min-height: 105px;
-        padding: 14px 7px;
-        border-radius: 15px;
+    .dashboard-stat-card {
+        padding: 13px 10px;
+        gap: 9px;
     }
 
-    .stat-card h3 { font-size: 13px; }
-    .stat-card .number { font-size: 23px; }
-    .stat-card .money { font-size: 12px; }
-
-    .chart-card {
-        min-height: 340px;
-        padding: 20px 14px;
-        border-radius: 15px;
+    .dashboard-stat-icon {
+        width: 37px;
+        height: 37px;
+        min-width: 37px;
+        font-size: 17px;
     }
 
-    .chart-card h2 { font-size: 16px; }
-    .chart-container { height: 250px; }
-    .rfm-item { font-size: 11px; }
+    .dashboard-stat-info p {
+        font-size: 10px;
+    }
+
+    .dashboard-stat-info h3 {
+        font-size: 18px;
+    }
+
+    .dashboard-stat-info h3.money {
+        font-size: 12px;
+    }
+
+    .dashboard-panel {
+        padding: 16px 13px;
+    }
+
+    .dashboard-panel-header h3 {
+        font-size: 13px;
+    }
+
+    .dashboard-chart-container {
+        height: 240px;
+    }
+
+    .dashboard-rfm-name {
+        font-size: 10px;
+    }
 }
+</style>
 
-    </style>
-</head>
+<!-- =====================================
+     KONTEN DASHBOARD
+====================================== -->
 
-<body>
+<div class="dashboard-content">
 
-<!-- SIDEBAR -->
-<aside class="sidebar">
+    <!-- SAMBUTAN -->
+    <section class="dashboard-welcome">
 
-    <div class="brand">
-        <img src="assets/images/logo.png" alt="Logo Smart Education">
-        <h2>Smart Education</h2>
-        <p>Bimbingan Belajar Pare-pare</p>
-    </div>
-
-    <div class="admin-profile">
-        <div class="avatar">
-            <?= strtoupper(substr($nama, 0, 1)); ?>
-        </div>
-        <h3><?= htmlspecialchars(ucwords(str_replace("_", " ", $role))); ?></h3>
-    </div>
-
-    <nav class="menu">
-
-        <a href="dashboard.php" class="active">
-            <span class="menu-icon">⌂</span>
-            <span>Dashboard</span>
-        </a>
-
-        <a href="modules/siswa/index.php">
-            <span class="menu-icon">♙</span>
-            <span>Data Siswa</span>
-        </a>
-
-        <a href="modules/paket/index.php">
-            <span class="menu-icon">▱</span>
-            <span>Paket Belajar</span>
-        </a>
-
-        <a href="modules/tutor/index.php">
-            <span class="menu-icon">♙</span>
-            <span>Data Tutor</span>
-        </a>
-
-        <a href="modules/ruangan/index.php">
-            <span class="menu-icon">▯</span>
-            <span>Ruangan</span>
-        </a>
-
-        <a href="modules/kelas/index.php">
-            <span class="menu-icon">⌂</span>
-            <span>Kelas</span>
-        </a>
-
-        <a href="modules/pembayaran/index.php">
-            <span class="menu-icon">▣</span>
-            <span>Pembayaran</span>
-        </a>
-
-        <a href="modules/pembayaran/riwayat.php">
-            <span class="menu-icon">▤</span>
-            <span>Riwayat Pembayaran</span>
-        </a>
-
-        <a href="modules/rfm/index.php">
-            <span class="menu-icon">▥</span>
-            <span>Analisis RFM</span>
-        </a>
-
-        <a href="modules/jadwal/otomatis.php">
-            <span class="menu-icon">◷</span>
-            <span>Penjadwalan Otomatis</span>
-        </a>
-
-        <a href="modules/jadwal/index.php">
-            <span class="menu-icon">▦</span>
-            <span>Informasi Jadwal</span>
-        </a>
-
-        <a href="modules/auth/logout.php" class="logout">
-            <span class="menu-icon">⇥</span>
-            <span>Logout</span>
-        </a>
-
-    </nav>
-
-</aside>
-
-<!-- KONTEN DASHBOARD -->
-<main class="main-content">
-
-    <div class="navbar">
-        <a href="#" class="notification" title="Notifikasi">♧</a>
-    </div>
-
-    <section class="welcome">
-        <h1>
-            Selamat Datang, <?= htmlspecialchars(ucwords(str_replace("_", " ", $role))); ?>
-        </h1>
+        <h2>
+            Selamat Datang, <?= htmlspecialchars($nama, ENT_QUOTES, 'UTF-8'); ?>!
+        </h2>
 
         <p>
-            Kelola seluruh data bimbingan belajar Smart Education di sini.
+            Kelola kegiatan bimbingan belajar Smart Education dengan mudah melalui dashboard ini.
         </p>
+
     </section>
 
     <!-- STATISTIK -->
-    <section class="stats">
+    <section class="dashboard-stats">
 
-        <div class="stat-card">
-            <h3>Total Siswa</h3>
-            <div class="number"><?= number_format($totalSiswa, 0, ',', '.'); ?></div>
-        </div>
+        <div class="dashboard-stat-card">
 
-        <div class="stat-card">
-            <h3>Total Kelas</h3>
-            <div class="number"><?= number_format($totalKelas, 0, ',', '.'); ?></div>
-        </div>
-
-        <div class="stat-card">
-            <h3>Total Tutor</h3>
-            <div class="number"><?= number_format($totalTutor, 0, ',', '.'); ?></div>
-        </div>
-
-        <div class="stat-card">
-            <h3>Pembayaran</h3>
-            <div class="money">
-                Rp. <?= number_format($totalPembayaran, 0, ',', '.'); ?>
+            <div class="dashboard-stat-icon">
+                <i class="bi bi-people"></i>
             </div>
+
+            <div class="dashboard-stat-info">
+                <p>Total Siswa</p>
+                <h3><?= number_format($totalSiswa, 0, ',', '.'); ?></h3>
+            </div>
+
+        </div>
+
+        <div class="dashboard-stat-card">
+
+            <div class="dashboard-stat-icon">
+                <i class="bi bi-easel"></i>
+            </div>
+
+            <div class="dashboard-stat-info">
+                <p>Total Kelas</p>
+                <h3><?= number_format($totalKelas, 0, ',', '.'); ?></h3>
+            </div>
+
+        </div>
+
+        <div class="dashboard-stat-card">
+
+            <div class="dashboard-stat-icon">
+                <i class="bi bi-person-workspace"></i>
+            </div>
+
+            <div class="dashboard-stat-info">
+                <p>Total Tutor</p>
+                <h3><?= number_format($totalTutor, 0, ',', '.'); ?></h3>
+            </div>
+
+        </div>
+
+        <div class="dashboard-stat-card">
+
+            <div class="dashboard-stat-icon">
+                <i class="bi bi-wallet2"></i>
+            </div>
+
+            <div class="dashboard-stat-info">
+                <p>Total Pembayaran</p>
+                <h3 class="money">
+                    Rp <?= number_format($totalPembayaran, 0, ',', '.'); ?>
+                </h3>
+            </div>
+
         </div>
 
     </section>
 
-    <!-- GRAFIK -->
-    <section class="chart-grid">
+    <!-- GRAFIK DAN RFM -->
+    <section class="dashboard-chart-grid">
 
-        <div class="chart-card">
-            <h2>Grafik Pembayaran</h2>
+        <!-- GRAFIK PEMBAYARAN -->
+        <div class="dashboard-panel">
 
-            <div class="chart-container">
+            <div class="dashboard-panel-header">
+
+                <h3>
+                    <i class="bi bi-bar-chart-line me-2"></i>
+                    Grafik Pembayaran
+                </h3>
+
+                <span class="dashboard-panel-label">
+                    6 Bulan Terakhir
+                </span>
+
+            </div>
+
+            <div class="dashboard-chart-container">
                 <canvas id="grafikPembayaran"></canvas>
             </div>
+
         </div>
 
-        <div class="chart-card">
-            <h2>Segmentasi Siswa (RFM)</h2>
+        <!-- SEGMENTASI RFM -->
+        <div class="dashboard-panel">
+
+            <div class="dashboard-panel-header">
+
+                <h3>
+                    <i class="bi bi-pie-chart me-2"></i>
+                    Segmentasi Siswa (RFM)
+                </h3>
+
+                <span class="dashboard-panel-label">
+                    Analisis Siswa
+                </span>
+
+            </div>
 
             <?php if ($totalRFM > 0): ?>
 
-                <div class="rfm-content">
+                <div class="dashboard-rfm-list">
 
-                    <div class="rfm-item">
-                        <div class="rfm-dot orange"></div>
-                        <span>Pembayar Rutin (8–9)</span>
-                        <span class="rfm-percent"><?= $persenRutin; ?>%</span>
+                    <!-- PEMBAYAR RUTIN -->
+                    <div class="dashboard-rfm-item">
+
+                        <span class="dashboard-rfm-dot rfm-orange"></span>
+
+                        <span class="dashboard-rfm-name">
+                            Pembayar Rutin (8–9)
+                        </span>
+
+                        <span class="dashboard-rfm-percent">
+                            <?= $persenRutin; ?>%
+                        </span>
+
+                        <div class="dashboard-rfm-progress">
+                            <span
+                                class="rfm-orange"
+                                style="width: <?= $persenRutin; ?>%">
+                            </span>
+                        </div>
+
                     </div>
 
-                    <div class="rfm-item">
-                        <div class="rfm-dot purple"></div>
-                        <span>Perlu Pengingat (5–7)</span>
-                        <span class="rfm-percent"><?= $persenPengingat; ?>%</span>
+                    <!-- PERLU PENGINGAT -->
+                    <div class="dashboard-rfm-item">
+
+                        <span class="dashboard-rfm-dot rfm-purple"></span>
+
+                        <span class="dashboard-rfm-name">
+                            Perlu Pengingat (5–7)
+                        </span>
+
+                        <span class="dashboard-rfm-percent">
+                            <?= $persenPengingat; ?>%
+                        </span>
+
+                        <div class="dashboard-rfm-progress">
+                            <span
+                                class="rfm-purple"
+                                style="width: <?= $persenPengingat; ?>%">
+                            </span>
+                        </div>
+
                     </div>
 
-                    <div class="rfm-item">
-                        <div class="rfm-dot green"></div>
-                        <span>Berisiko (3–4)</span>
-                        <span class="rfm-percent"><?= $persenBerisiko; ?>%</span>
+                    <!-- BERISIKO -->
+                    <div class="dashboard-rfm-item">
+
+                        <span class="dashboard-rfm-dot rfm-green"></span>
+
+                        <span class="dashboard-rfm-name">
+                            Berisiko (3–4)
+                        </span>
+
+                        <span class="dashboard-rfm-percent">
+                            <?= $persenBerisiko; ?>%
+                        </span>
+
+                        <div class="dashboard-rfm-progress">
+                            <span
+                                class="rfm-green"
+                                style="width: <?= $persenBerisiko; ?>%">
+                            </span>
+                        </div>
+
                     </div>
 
                 </div>
 
             <?php else: ?>
 
-                <div class="rfm-content">
-                    <p class="empty-rfm">
+                <div class="dashboard-empty">
+                    <div>
+                        <i class="bi bi-bar-chart fs-2 d-block mb-2"></i>
                         Belum ada data segmentasi RFM.
-                    </p>
+                    </div>
                 </div>
 
             <?php endif; ?>
@@ -696,15 +655,24 @@ body {
 
     </section>
 
-</main>
+</div>
+
+<!-- =====================================
+     GRAFIK PEMBAYARAN
+====================================== -->
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
-    const labelBulan = <?= $labelBulanJSON ?: "[]"; ?>;
-    const dataPembayaran = <?= $dataPembayaranJSON ?: "[]"; ?>;
+const labelBulan = <?= $labelBulanJSON ?: "[]"; ?>;
+const dataPembayaran = <?= $dataPembayaranJSON ?: "[]"; ?>;
 
-    const canvas = document.getElementById("grafikPembayaran");
+const canvasPembayaran = document.getElementById("grafikPembayaran");
 
-    new Chart(canvas, {
+if (canvasPembayaran) {
+
+    new Chart(canvasPembayaran, {
+
         type: "bar",
 
         data: {
@@ -713,47 +681,114 @@ body {
             datasets: [{
                 label: "Total Pembayaran",
                 data: dataPembayaran,
+
                 backgroundColor: "#68B7AA",
-                borderRadius: 6,
-                barThickness: 45
+                hoverBackgroundColor: "#287E72",
+
+                borderRadius: 8,
+                barThickness: 35,
+                maxBarThickness: 45
             }]
         },
 
         options: {
+
             responsive: true,
             maintainAspectRatio: false,
-            resizeDelay: 100,
 
             plugins: {
+
                 legend: {
                     display: false
                 },
 
                 tooltip: {
+
+                    backgroundColor: "#173B38",
+                    padding: 12,
+
                     callbacks: {
+
                         label: function(context) {
+
                             return "Rp " +
-                                new Intl.NumberFormat("id-ID").format(context.raw);
+                                new Intl.NumberFormat("id-ID")
+                                .format(context.raw);
+
                         }
+
                     }
+
                 }
+
             },
 
             scales: {
-                y: {
-                    beginAtZero: true,
+
+                x: {
+
+                    grid: {
+                        display: false
+                    },
+
                     ticks: {
+                        color: "#718582",
+                        font: {
+                            size: 11
+                        }
+                    },
+
+                    border: {
+                        display: false
+                    }
+
+                },
+
+                y: {
+
+                    beginAtZero: true,
+
+                    grid: {
+                        color: "#E8F2EF"
+                    },
+
+                    ticks: {
+
+                        color: "#718582",
+
+                        font: {
+                            size: 10
+                        },
+
                         callback: function(value) {
+
                             return new Intl.NumberFormat("id-ID", {
                                 notation: "compact"
                             }).format(value);
+
                         }
+
+                    },
+
+                    border: {
+                        display: false
                     }
+
                 }
+
             }
+
         }
+
     });
+
+}
 </script>
 
-</body>
-</html>
+<?php
+// =====================================
+// TEMPLATE FOOTER
+// =====================================
+
+require_once __DIR__ . "/includes/footer.php";
+?>
