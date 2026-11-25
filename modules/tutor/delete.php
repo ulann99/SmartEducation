@@ -1,120 +1,89 @@
 
 <?php
 /**
- * Delete Tutor Action
+ * HAPUS DATA TUTOR
  * SMART EDUCATION PAREPARE
  */
 
-define('BASEPATH', dirname(dirname(__DIR__)));
-require_once BASEPATH . '/config/helper.php';
+$root = dirname(__DIR__, 2);
 
+if (!defined('BASEPATH')) {
+    define('BASEPATH', $root);
+}
+
+require_once $root . '/config/helper.php';
 require_roles(['superadmin', 'admin']);
 
-// Tombol hapus pada halaman tutor mengirim ID melalui GET
-$id_tutor = (int)($_GET['id'] ?? 0);
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    header('Location: ' . base_url('modules/tutor/index.php'));
+    exit;
+}
 
-if ($id_tutor <= 0) {
-    set_flash('danger', 'ID tutor tidak valid!');
+// Validasi CSRF
+if (
+    !isset($_POST['csrf_token'], $_SESSION['csrf_token']) ||
+    !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])
+) {
+    set_flash('danger', 'Permintaan tidak valid. Silakan coba kembali.');
+    header('Location: ' . base_url('modules/tutor/index.php'));
+    exit;
+}
+
+$id = filter_var($_POST['id_tutor'] ?? null, FILTER_VALIDATE_INT);
+
+if (!$id) {
+    set_flash('danger', 'ID tutor tidak valid.');
     header('Location: ' . base_url('modules/tutor/index.php'));
     exit;
 }
 
 try {
-    $pdo->beginTransaction();
-
-    // 1. Periksa apakah tutor tersedia
-    $stmt_tutor = $pdo->prepare("
+    // Periksa data tutor
+    $stmt = $pdo->prepare("
         SELECT id_tutor, nama_tutor
         FROM tutor
-        WHERE id_tutor = :id_tutor
-        LIMIT 1
-        FOR UPDATE
+        WHERE id_tutor = ?
     ");
-
-    $stmt_tutor->execute([
-        ':id_tutor' => $id_tutor
-    ]);
-
-    $tutor = $stmt_tutor->fetch(PDO::FETCH_ASSOC);
+    $stmt->execute([$id]);
+    $tutor = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$tutor) {
-        throw new Exception('Data tutor tidak ditemukan!');
-    }
-
-    $nama_tutor = $tutor['nama_tutor'];
-
-    // 2. Periksa apakah tutor masih mengampu kelas
-    $stmt_kelas = $pdo->prepare("
-        SELECT COUNT(*)
-        FROM kelas
-        WHERE id_tutor = :id_tutor
-    ");
-
-    $stmt_kelas->execute([
-        ':id_tutor' => $id_tutor
-    ]);
-
-    $jumlah_kelas = (int) $stmt_kelas->fetchColumn();
-
-    // 3. Jika masih mengampu kelas, jangan hapus
-    if ($jumlah_kelas > 0) {
-
-        $stmt_nonaktif = $pdo->prepare("
-            UPDATE tutor
-            SET status_tutor = 'Non-Aktif'
-            WHERE id_tutor = :id_tutor
-        ");
-
-        $stmt_nonaktif->execute([
-            ':id_tutor' => $id_tutor
-        ]);
-
-        $pdo->commit();
-
-        set_flash(
-            'warning',
-            'Tutor "' . $nama_tutor .
-            '" masih mengampu ' . $jumlah_kelas .
-            ' kelas. Data tidak dihapus dan status diubah menjadi Non-Aktif.'
-        );
-
+        set_flash('danger', 'Data tutor tidak ditemukan.');
     } else {
-
-        // 4. Jika tidak memiliki kelas, hapus data tutor
-        $stmt_delete = $pdo->prepare("
-            DELETE FROM tutor
-            WHERE id_tutor = :id_tutor
+        // Periksa apakah tutor masih digunakan oleh kelas
+        $cekKelas = $pdo->prepare("
+            SELECT COUNT(*)
+            FROM kelas
+            WHERE id_tutor = ?
         ");
+        $cekKelas->execute([$id]);
 
-        $stmt_delete->execute([
-            ':id_tutor' => $id_tutor
-        ]);
+        $jumlahKelas = (int)$cekKelas->fetchColumn();
 
-        if ($stmt_delete->rowCount() === 0) {
-            throw new Exception('Data tutor gagal dihapus!');
+        if ($jumlahKelas > 0) {
+            set_flash(
+                'danger',
+                'Tutor tidak dapat dihapus karena masih mengampu ' .
+                $jumlahKelas .
+                ' kelas. Ubah status tutor menjadi Non-Aktif jika tidak lagi mengajar.'
+            );
+        } else {
+            $hapus = $pdo->prepare("
+                DELETE FROM tutor
+                WHERE id_tutor = ?
+            ");
+            $hapus->execute([$id]);
+
+            set_flash(
+                'success',
+                'Data tutor ' . $tutor['nama_tutor'] . ' berhasil dihapus.'
+            );
         }
-
-        $pdo->commit();
-
-        set_flash(
-            'success',
-            'Data tutor "' . $nama_tutor .
-            '" berhasil dihapus!'
-        );
     }
 
-} catch (Throwable $e) {
-
-    if ($pdo->inTransaction()) {
-        $pdo->rollBack();
-    }
-
-    set_flash(
-        'danger',
-        'Gagal menghapus tutor: ' . $e->getMessage()
-    );
+} catch (PDOException $e) {
+    set_flash('danger', 'Data tutor gagal dihapus karena masih memiliki data terkait.');
 }
 
-// 5. Kembali ke halaman Data Tutor
 header('Location: ' . base_url('modules/tutor/index.php'));
 exit;

@@ -548,9 +548,10 @@ require_once BASEPATH . '/includes/navbar.php';
 ===================================================== */
 
 $stmt_periode = $pdo->query("
-    SELECT DISTINCT periode_analisis
+    SELECT periode_analisis
     FROM analisis_rfm
-    ORDER BY tanggal_analisis DESC
+    GROUP BY periode_analisis
+    ORDER BY MAX(tanggal_analisis) DESC
 ");
 
 $daftar_periode = $stmt_periode->fetchAll(PDO::FETCH_COLUMN);

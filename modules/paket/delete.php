@@ -1,97 +1,85 @@
+
 <?php
 /**
- * Delete Paket Belajar Action
+ * HAPUS PAKET BELAJAR
  * SMART EDUCATION PAREPARE
  */
 
-define('BASEPATH', dirname(dirname(__DIR__)));
+$root = dirname(__DIR__, 2);
 
-require_once BASEPATH . '/config/helper.php';
+if (!defined('BASEPATH')) {
+    define('BASEPATH', $root);
+}
 
-require_roles(['superadmin', 'admin']);
+require_once $root . '/config/helper.php';
+require_login();
 
-$id_paket = (int) ($_GET['id'] ?? 0);
+if (!in_array($_SESSION['role'] ?? '', ['superadmin', 'admin'], true)) {
+    header('Location: ' . base_url('dashboard.php'));
+    exit;
+}
 
-// Validasi ID
-if ($id_paket <= 0) {
-    set_flash('danger', 'ID Paket tidak valid!');
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    header('Location: ' . base_url('modules/paket/index.php'));
+    exit;
+}
+
+if (
+    !isset($_POST['csrf_token'], $_SESSION['csrf_token']) ||
+    !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])
+) {
+    set_flash('danger', 'Permintaan tidak valid. Silakan coba kembali.');
+    header('Location: ' . base_url('modules/paket/index.php'));
+    exit;
+}
+
+$id = filter_var($_POST['id_paket'] ?? null, FILTER_VALIDATE_INT);
+
+if (!$id) {
+    set_flash('danger', 'ID paket tidak valid.');
     header('Location: ' . base_url('modules/paket/index.php'));
     exit;
 }
 
 try {
-
-    // 1. Ambil data paket
     $stmt = $pdo->prepare("
         SELECT id_paket, nama_paket
         FROM paket_belajar
-        WHERE id_paket = :id
-        LIMIT 1
+        WHERE id_paket = ?
     ");
-
-    $stmt->execute([':id' => $id_paket]);
-
+    $stmt->execute([$id]);
     $paket = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$paket) {
-        set_flash('danger', 'Paket belajar tidak ditemukan!');
-        header('Location: ' . base_url('modules/paket/index.php'));
-        exit;
-    }
-
-    // 2. Coba hapus paket
-    try {
-
-        $stmt_delete = $pdo->prepare("
-            DELETE FROM paket_belajar
-            WHERE id_paket = :id
+        set_flash('danger', 'Paket belajar tidak ditemukan.');
+    } else {
+        // Jangan hapus paket yang masih digunakan oleh data siswa
+        $cekSiswa = $pdo->prepare("
+            SELECT COUNT(*)
+            FROM siswa
+            WHERE id_paket = ?
         ");
+        $cekSiswa->execute([$id]);
+        $jumlahSiswa = (int)$cekSiswa->fetchColumn();
 
-        $stmt_delete->execute([':id' => $id_paket]);
-
-        if ($stmt_delete->rowCount() > 0) {
+        if ($jumlahSiswa > 0) {
             set_flash(
-                'success',
-                'Paket Belajar "' . $paket['nama_paket'] . '" berhasil dihapus!'
+                'danger',
+                'Paket tidak dapat dihapus karena masih digunakan oleh ' .
+                $jumlahSiswa . ' siswa. Ubah statusnya menjadi Non-Aktif.'
             );
         } else {
-            set_flash('danger', 'Paket gagal dihapus!');
-        }
-
-    } catch (PDOException $delete_error) {
-
-        // 3. Jika masih digunakan oleh tabel lain,
-        // ubah status paket menjadi Nonaktif.
-        $error_code = $delete_error->errorInfo[1] ?? null;
-
-        if ((int) $error_code === 1451) {
-
-            $stmt_update = $pdo->prepare("
-                UPDATE paket_belajar
-                SET status = 'Nonaktif'
-                WHERE id_paket = :id
+            $hapus = $pdo->prepare("
+                DELETE FROM paket_belajar
+                WHERE id_paket = ?
             ");
+            $hapus->execute([$id]);
 
-            $stmt_update->execute([':id' => $id_paket]);
-
-            set_flash(
-                'success',
-                'Paket "' . $paket['nama_paket'] .
-                '" masih digunakan dalam transaksi atau data lainnya. ' .
-                'Paket berhasil dinonaktifkan agar riwayat data tetap aman.'
-            );
-
-        } else {
-            throw $delete_error;
+            set_flash('success', 'Paket ' . $paket['nama_paket'] . ' berhasil dihapus.');
         }
     }
-
 } catch (PDOException $e) {
-
-    set_flash(
-        'danger',
-        'Detail error: ' . $e->getMessage()
-    );
+    set_flash('danger', 'Paket belajar gagal dihapus karena masih memiliki data terkait.');
 }
 
 header('Location: ' . base_url('modules/paket/index.php'));

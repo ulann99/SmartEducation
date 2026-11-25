@@ -25,8 +25,6 @@ if (!in_array($role, ["admin", "superadmin"], true)) {
 // KONFIGURASI TEMPLATE
 // =====================================
 
-define("BASEPATH", dirname(__DIR__));
-
 $current_page = "dashboard";
 $page_title = "Dashboard";
 

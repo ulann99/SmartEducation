@@ -115,15 +115,18 @@ body {
 
 /* SIDEBAR */
 
+/* SIDEBAR */
+
 .sidebar {
     position: fixed;
     top: 0;
     left: 0;
-    width: 250px;
+    width: 270px;
     height: 100vh;
     background: var(--primary);
     padding: 24px 0;
     overflow-y: auto;
+    overflow-x: hidden;
     z-index: 100;
     border-radius: 0 18px 18px 0;
 }
@@ -154,6 +157,7 @@ body {
 
 .menu {
     padding: 0 10px;
+    width: 100%;
 }
 
 .menu-title {
@@ -167,17 +171,42 @@ body {
 
 .menu a {
     display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
     align-items: center;
-    gap: 13px;
+    justify-content: flex-start;
+    width: 100%;
     min-height: 45px;
-    padding: 10px 14px;
+    padding: 10px 12px;
     margin-bottom: 5px;
     border-radius: 9px;
+    gap: 12px;
     color: #173B38;
     text-decoration: none;
-    font-size: 12.5px;
+    font-size: 12px;
     font-weight: 500;
+    white-space: nowrap;
     transition: .2s;
+}
+
+.menu a span:not(.menu-icon) {
+    display: block;
+    flex: 1;
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
+    text-align: left;
+}
+
+.menu-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    min-width: 22px;
+    flex: 0 0 22px;
+    text-align: center;
+    font-size: 18px;
 }
 
 .menu a:hover,
@@ -186,20 +215,9 @@ body {
     color: #176D63;
 }
 
-.menu-icon {
-    width: 22px;
-    flex: 0 0 22px;
-    text-align: center;
-    font-size: 18px;
-}
-
 .menu a.disabled {
     opacity: .65;
     cursor: default;
-}
-
-.menu a.disabled:hover {
-    background: transparent;
 }
 
 .menu a.logout {
@@ -210,9 +228,9 @@ body {
 /* KONTEN */
 
 .main-content {
-    width: calc(100% - 250px);
+    width: calc(100% - 270px);
     min-height: 100vh;
-    margin-left: 250px;
+    margin-left: 270px;
     padding: 0 30px 35px;
 }
 
@@ -459,6 +477,8 @@ body {
 
 /* RESPONSIVE */
 
+/* RESPONSIVE */
+
 @media (max-width: 1150px) {
     .stats {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -560,38 +580,38 @@ body {
 
     <nav class="menu">
 
-        <div class="menu-title">Menu Utama</div>
+    <div class="menu-title">Menu Utama</div>
 
-        <a href="dashboard_superadmin.php" class="active">
-            <span class="menu-icon">⌂</span>
-            <span>Dashboard</span>
-        </a>
+    <a href="dashboard_superadmin.php" class="active">
+        <span class="menu-icon">⌂</span>
+        <span>Dashboard</span>
+    </a>
 
-        <div class="menu-title">Pengelolaan Sistem</div>
+    <div class="menu-title">Pengelolaan Sistem</div>
 
-        <a href="#" class="disabled" title="Modul akan dibuat pada tahap berikutnya">
-            <span class="menu-icon">♙</span>
-            <span>Manajemen Pengguna</span>
-        </a>
+    <a href="modules/users/index.php">
+        <span class="menu-icon">♙</span>
+        <span>Manajemen Pengguna</span>
+    </a>
 
-        <a href="#" class="disabled" title="Modul akan dibuat pada tahap berikutnya">
-            <span class="menu-icon">♧</span>
-            <span>Manajemen Administrator</span>
-        </a>
+    <a href="modules/users/administrator.php">
+        <span class="menu-icon">♧</span>
+        <span>Manajemen Administrator</span>
+    </a>
 
-        <a href="#" class="disabled" title="Modul akan dibuat pada tahap berikutnya">
-            <span class="menu-icon">⚙</span>
-            <span>Pengaturan Hak Akses</span>
-        </a>
+    <a href="modules/users/hak_akses.php">
+        <span class="menu-icon">⚙</span>
+        <span>Pengaturan Hak Akses</span>
+    </a>
 
-        <div class="menu-title">Akun</div>
+    <div class="menu-title">Akun</div>
 
-        <a href="modules/auth/logout.php" class="logout">
-            <span class="menu-icon">⇥</span>
-            <span>Logout</span>
-        </a>
+    <a href="modules/auth/logout.php" class="logout">
+        <span class="menu-icon">⇥</span>
+        <span>Logout</span>
+    </a>
 
-    </nav>
+</nav>
 
 </aside>
 
