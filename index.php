@@ -1,4 +1,3 @@
-
 <?php
 $pageTitle = "Smart Education Parepare";
 ?>
@@ -27,22 +26,22 @@ $pageTitle = "Smart Education Parepare";
 <!-- HEADER -->
 <header class="site-header">
 
-    <a class="brand" href="index.php">
-        <span class="brand-mark">S</span>
+    <!-- LOGO SMART EDUCATION -->
+<a class="brand" href="index.php">
 
-        <span class="brand-copy">
-            <strong>SMART EDUCATION</strong>
-            <small>PAREPARE</small>
-        </span>
-    </a>
+    <span class="brand-mark">
+        <img
+            src="assets/images/logo.png"
+            alt="Logo Smart Education"
+        >
+    </span>
 
-    <button class="menu-toggle" type="button"
-        aria-label="Buka navigasi"
-        aria-expanded="false">
-        <span></span>
-        <span></span>
-        <span></span>
-    </button>
+    <span class="brand-copy">
+        <strong>SMART EDUCATION</strong>
+        <small>PAREPARE</small>
+    </span>
+
+</a>
 
     <!-- NAVBAR -->
     <nav class="main-nav">
@@ -482,7 +481,9 @@ $pageTitle = "Smart Education Parepare";
 
             <a class="brand" href="#beranda">
 
-                <span class="brand-mark">S</span>
+                <span class="brand-mark">
+                     <img src="assets/images/logo.png" alt="Logo Smart Education">
+                </span>
 
                 <span class="brand-copy">
                     <strong>SMART EDUCATION</strong>

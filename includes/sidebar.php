@@ -84,11 +84,6 @@ $dash_url = ($role === 'superadmin')
 
             <?php endif; ?>
 
-            <!-- MENU OPERASIONAL -->
-            <div class="sidebar-section-title">
-                Operasional Sistem
-            </div>
-
             <a href="<?= base_url('modules/siswa/index.php') ?>"
                class="sidebar-link <?= ($current_page === 'siswa') ? 'active' : '' ?>">
                 <i class="bi bi-person"></i>
@@ -250,9 +245,13 @@ $dash_url = ($role === 'superadmin')
 ===================================== */
 
 .app-sidebar .sidebar-menu {
-    display: flex;
-    flex-direction: column;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-start !important;
+    align-items: stretch !important;
+    gap: 3px !important;
     width: 100%;
+    height: auto !important;
     padding: 0 12px 25px;
 }
 
@@ -276,26 +275,20 @@ $dash_url = ($role === 'superadmin')
     flex-direction: row !important;
     align-items: center !important;
     justify-content: flex-start !important;
-
     width: 100% !important;
-    min-width: 0;
-    min-height: 46px;
-
-    padding: 10px 12px !important;
-    margin: 0 0 5px 0 !important;
-
+    height: 42px !important;
+    min-height: 42px !important;
+    flex: 0 0 42px !important;
+    padding: 8px 12px !important;
+    margin: 0 !important;
     gap: 12px !important;
-
     border: none;
     border-radius: 10px;
-
     background: transparent;
     color: #173B38;
-
     text-decoration: none;
     font-size: 12px;
     font-weight: 500;
-
     white-space: nowrap !important;
     transition: background .2s ease, color .2s ease;
 }

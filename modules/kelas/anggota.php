@@ -159,23 +159,48 @@ $stmt_members->execute([':id_kelas' => $id_kelas]);
 $members = $stmt_members->fetchAll(PDO::FETCH_ASSOC);
 
 // ========================================
+// CEK KAPASITAS KELAS
+// ========================================
+
+$jumlah_anggota = count($members);
+$kapasitas = (int)$kelas['max_siswa'];
+$kelas_penuh = ($jumlah_anggota >= $kapasitas);
+
+$pct = $kapasitas > 0
+    ? min(100, round(($jumlah_anggota / $kapasitas) * 100))
+    : 100;
+
+// ========================================
 // AMBIL SISWA YANG BELUM TERDAFTAR
 // ========================================
 
-$stmt_avail = $pdo->prepare("
-    SELECT id_siswa, nis, nama_siswa
-    FROM siswa
-    WHERE status_siswa = 'Aktif'
-    AND id_siswa NOT IN (
-        SELECT id_siswa
-        FROM anggota_kelas
-        WHERE id_kelas = :id_kelas
-    )
-    ORDER BY nama_siswa ASC
-");
+// ========================================
+// AMBIL SISWA YANG BELUM TERDAFTAR
+// JIKA KELAS BELUM PENUH
+// ========================================
 
-$stmt_avail->execute([':id_kelas' => $id_kelas]);
-$available_students = $stmt_avail->fetchAll(PDO::FETCH_ASSOC);
+$available_students = [];
+
+if (!$kelas_penuh) {
+
+    $stmt_avail = $pdo->prepare("
+        SELECT id_siswa, nis, nama_siswa
+        FROM siswa
+        WHERE status_siswa = 'Aktif'
+        AND id_siswa NOT IN (
+            SELECT id_siswa
+            FROM anggota_kelas
+            WHERE id_kelas = :id_kelas
+        )
+        ORDER BY nama_siswa ASC
+    ");
+
+    $stmt_avail->execute([
+        ':id_kelas' => $id_kelas
+    ]);
+
+    $available_students = $stmt_avail->fetchAll(PDO::FETCH_ASSOC);
+}
 
 // ========================================
 // INFORMASI HALAMAN
@@ -557,13 +582,27 @@ $pct = min(100, round(($jumlah_anggota / $kapasitas) * 100));
 
         </div>
 
-        <button type="button"
-                class="btn-masukkan-siswa"
-                data-bs-toggle="modal"
-                data-bs-target="#modalTambahAnggota">
-            <i class="bi bi-person-plus-fill"></i>
-            Masukkan Siswa ke Kelas
-        </button>
+        <?php if (!$kelas_penuh): ?>
+
+    <button type="button"
+            class="btn-masukkan-siswa"
+            data-bs-toggle="modal"
+            data-bs-target="#modalTambahAnggota">
+        <i class="bi bi-person-plus-fill"></i>
+        Masukkan Siswa ke Kelas
+    </button>
+
+<?php else: ?>
+
+    <button type="button"
+            class="btn-masukkan-siswa"
+            disabled
+            style="opacity: .6; cursor: not-allowed;">
+        <i class="bi bi-lock-fill"></i>
+        Kelas Sudah Penuh
+    </button>
+
+<?php endif; ?>
 
     </div>
 
@@ -752,10 +791,19 @@ $pct = min(100, round(($jumlah_anggota / $kapasitas) * 100));
 
                         </select>
 
-                        <?php if (empty($available_students)): ?>
+                        <?php if ($kelas_penuh): ?>
+
+                            <div class="alert alert-warning mt-2 mb-0">
+                                <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                                Kapasitas kelas sudah penuh. Siswa tidak dapat ditambahkan lagi.
+                            </div>
+
+                        <?php elseif (empty($available_students)): ?>
+
                             <div class="form-text text-warning mt-1">
                                 Semua siswa aktif sudah terdaftar di kelas ini.
                             </div>
+
                         <?php endif; ?>
                     </div>
 

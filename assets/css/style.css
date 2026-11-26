@@ -65,39 +65,9 @@ a {
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   text-decoration: none;
   flex-shrink: 0;
-}
-
-.brand-mark {
-  width: 43px;
-  height: 43px;
-  display: grid;
-  place-items: center;
-  border-radius: 14px;
-  background: var(--white);
-  color: var(--deep);
-  font-weight: 900;
-  font-size: 25px;
-  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.07);
-}
-
-.brand-copy {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.15;
-}
-
-.brand-copy strong {
-  font-size: 16px;
-  letter-spacing: 0.5px;
-}
-
-.brand-copy small {
-  margin-top: 4px;
-  font-size: 9px;
-  letter-spacing: 3px;
 }
 
 .main-nav {
@@ -896,6 +866,16 @@ a {
     gap: 15px;
   }
 
+  .brand-mark {
+    width: 54px;
+    height: 54px;
+    min-width: 54px;
+  }
+
+  .brand-mark img {
+    width: 48px;
+    height: 48px;
+  }
   .main-nav {
     gap: 16px;
   }
@@ -1129,5 +1109,125 @@ a {
 
   .footer-main {
     grid-template-columns: 1fr;
+  }
+}
+
+/* =========================================
+   LOGO SMART EDUCATION - NAVBAR
+   Logo asli di dalam kotak putih
+========================================= */
+
+/* PERBAIKAN LOGO NAVBAR */
+.site-header .brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.site-header .brand-mark {
+  width: 70px;
+  height: 70px;
+  flex: 0 0 70px;
+  padding: 5px;
+  background: #ffffff;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.site-header .brand-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.site-header .brand-copy {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.site-header .brand-copy strong {
+  font-size: 16px;
+  color: #000;
+}
+
+.site-header .brand-copy small {
+  margin-top: 5px;
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: #000;
+}
+
+/* Tablet */
+@media (max-width: 1000px) {
+  .site-header .brand-mark {
+    width: 64px;
+    height: 64px;
+    min-width: 64px;
+    flex-basis: 64px;
+  }
+
+  .site-header .brand-mark > img {
+    width: 54px;
+    height: 54px;
+    max-width: 54px;
+    max-height: 54px;
+  }
+}
+
+/* HP */
+@media (max-width: 760px) {
+  .site-header .brand {
+    gap: 10px;
+  }
+
+  .site-header .brand-mark {
+    width: 56px;
+    height: 56px;
+    min-width: 56px;
+    flex-basis: 56px;
+    border-radius: 16px;
+  }
+
+  .site-header .brand-mark > img {
+    width: 47px;
+    height: 47px;
+    max-width: 47px;
+    max-height: 47px;
+  }
+
+  .site-header .brand-copy strong {
+    font-size: 14px;
+  }
+
+  .site-header .brand-copy small {
+    font-size: 8px;
+    letter-spacing: 2.5px;
+  }
+}
+
+/* HP layar kecil */
+@media (max-width: 420px) {
+  .site-header .brand-mark {
+    width: 50px;
+    height: 50px;
+    min-width: 50px;
+    flex-basis: 50px;
+  }
+
+  .site-header .brand-mark > img {
+    width: 42px;
+    height: 42px;
+    max-width: 42px;
+    max-height: 42px;
+  }
+
+  .site-header .brand-copy strong {
+    font-size: 12px;
   }
 }
