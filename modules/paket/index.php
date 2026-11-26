@@ -12,11 +12,11 @@ if (!defined('BASEPATH')) {
 }
 
 require_once $root . '/config/helper.php';
-
 require_login();
 
 // Hak akses
 $user = current_user();
+
 $is_admin = in_array(
     $_SESSION['role'] ?? '',
     ['superadmin', 'admin'],
@@ -35,10 +35,15 @@ if (empty($_SESSION['csrf_token'])) {
 $sql = "
     SELECT
         p.*,
-        COUNT(s.id_siswa) AS jumlah_siswa
+        COALESCE(ps.jumlah_siswa, 0) AS jumlah_siswa
     FROM paket_belajar p
-    LEFT JOIN siswa s ON p.id_paket = s.id_paket
-    GROUP BY p.id_paket
+    LEFT JOIN (
+        SELECT
+            id_paket,
+            COUNT(DISTINCT id_siswa) AS jumlah_siswa
+        FROM pendaftaran
+        GROUP BY id_paket
+    ) ps ON p.id_paket = ps.id_paket
     ORDER BY p.id_paket DESC
 ";
 
@@ -51,7 +56,7 @@ $totalAktif = 0;
 $totalNonAktif = 0;
 
 foreach ($paket_list as $pk) {
-    if ($pk['status'] === 'Aktif') {
+    if (strtolower(trim((string) $pk['status'])) === 'aktif') {
         $totalAktif++;
     } else {
         $totalNonAktif++;
@@ -74,6 +79,7 @@ require_once $root . '/includes/navbar.php';
     --paket-border: #e4f0ed;
 }
 
+/* HALAMAN */
 .paket-page {
     padding: 24px 28px 35px;
     background: #f5fbfa;
@@ -81,7 +87,6 @@ require_once $root . '/includes/navbar.php';
 }
 
 /* HEADER */
-
 .paket-heading {
     display: flex;
     align-items: center;
@@ -104,7 +109,6 @@ require_once $root . '/includes/navbar.php';
 }
 
 /* TOMBOL */
-
 .btn-paket-primary {
     display: inline-flex;
     align-items: center;
@@ -143,7 +147,6 @@ require_once $root . '/includes/navbar.php';
 }
 
 /* STATISTIK */
-
 .paket-statistics {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -189,7 +192,6 @@ require_once $root . '/includes/navbar.php';
 }
 
 /* KARTU PAKET */
-
 .paket-card {
     height: 100%;
     overflow: hidden;
@@ -259,7 +261,6 @@ require_once $root . '/includes/navbar.php';
 }
 
 /* TOMBOL AKSI */
-
 .btn-paket-edit {
     display: inline-flex;
     align-items: center;
@@ -300,7 +301,6 @@ require_once $root . '/includes/navbar.php';
 }
 
 /* MODAL */
-
 .paket-modal .modal-dialog {
     max-width: 620px;
 }
@@ -314,13 +314,6 @@ require_once $root . '/includes/navbar.php';
     border-radius: 17px;
     box-shadow: 0 15px 45px rgba(0, 0, 0, .15);
 }
-
-/*
-   PENTING:
-   Form menjadi flex container.
-   Header dan footer tetap terlihat.
-   Body menjadi bagian yang dapat di-scroll.
-*/
 
 .paket-modal .modal-content > form {
     display: flex;
@@ -352,8 +345,6 @@ require_once $root . '/includes/navbar.php';
     font-size: 21px;
 }
 
-/* BAGIAN FORM YANG DI-SCROLL */
-
 .paket-modal .modal-body {
     flex: 1 1 auto;
     min-height: 0;
@@ -361,8 +352,6 @@ require_once $root . '/includes/navbar.php';
     overscroll-behavior: contain;
     padding: 22px 23px;
 }
-
-/* SCROLLBAR */
 
 .paket-modal .modal-body::-webkit-scrollbar {
     width: 7px;
@@ -382,8 +371,6 @@ require_once $root . '/includes/navbar.php';
     background: #72bdb0;
 }
 
-/* FOOTER TOMBOL */
-
 .paket-modal .modal-footer {
     flex: 0 0 auto;
     display: flex;
@@ -393,8 +380,6 @@ require_once $root . '/includes/navbar.php';
     border-top: 1px solid #e6eeec;
     background: white;
 }
-
-/* INPUT FORM */
 
 .paket-modal .form-label {
     margin-bottom: 7px;
@@ -426,8 +411,80 @@ require_once $root . '/includes/navbar.php';
     box-shadow: 0 0 0 3px rgba(39, 135, 121, .10);
 }
 
-/* DATA KOSONG */
+/* MODAL KONFIRMASI HAPUS */
+.modal-hapus-paket .modal-content {
+    overflow: hidden;
+    border: none;
+    border-radius: 17px;
+    box-shadow: 0 15px 45px rgba(0, 0, 0, .15);
+}
 
+.modal-hapus-paket .modal-header {
+    padding: 18px 22px;
+    background: var(--paket-soft);
+    border-bottom: 1px solid #dcefeb;
+}
+
+.modal-hapus-paket .modal-title {
+    color: var(--paket-text);
+    font-size: 17px;
+    font-weight: 700;
+}
+
+.modal-hapus-paket .modal-body {
+    padding: 28px 24px;
+}
+
+.modal-hapus-paket .icon-hapus {
+    width: 68px;
+    height: 68px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 17px;
+    border-radius: 50%;
+    background: #fff0f0;
+    color: #dc6565;
+    font-size: 29px;
+}
+
+.modal-hapus-paket .nama-paket-hapus {
+    display: inline-block;
+    margin-top: 5px;
+    padding: 8px 16px;
+    border-radius: 9px;
+    background: var(--paket-soft);
+    color: var(--paket-dark);
+    font-weight: 700;
+}
+
+.modal-hapus-paket .modal-footer {
+    padding: 15px 22px;
+    border-top: 1px solid #e6eeec;
+    background: white;
+}
+
+.btn-konfirmasi-hapus {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 10px 17px;
+    border: none;
+    border-radius: 9px;
+    background: #dc6565;
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.btn-konfirmasi-hapus:hover {
+    background: #c94c4c;
+    color: white;
+}
+
+/* DATA KOSONG */
 .paket-empty {
     padding: 55px 20px;
     text-align: center;
@@ -457,7 +514,6 @@ require_once $root . '/includes/navbar.php';
 }
 
 /* RESPONSIVE */
-
 @media (max-width: 768px) {
     .paket-page {
         padding: 20px 15px;
@@ -559,6 +615,10 @@ require_once $root . '/includes/navbar.php';
 
             <?php foreach ($paket_list as $pk): ?>
 
+                <?php
+                $statusAktif = strtolower(trim((string) $pk['status'])) === 'aktif';
+                ?>
+
                 <div class="col-lg-4 col-md-6">
 
                     <div class="card paket-card">
@@ -569,7 +629,7 @@ require_once $root . '/includes/navbar.php';
                                 <?= htmlspecialchars($pk['jenjang']); ?>
                             </span>
 
-                            <span class="<?= $pk['status'] === 'Aktif' ? 'badge-paket-active' : 'badge-paket-inactive'; ?>">
+                            <span class="<?= $statusAktif ? 'badge-paket-active' : 'badge-paket-inactive'; ?>">
                                 <?= htmlspecialchars($pk['status']); ?>
                             </span>
 
@@ -597,37 +657,16 @@ require_once $root . '/includes/navbar.php';
                             </p>
 
                             <div class="paket-info mb-3">
-
-                                <div class="d-flex justify-content-between mb-2">
-                                    <span class="text-muted">
-                                        <i class="bi bi-clock me-1"></i>
-                                        Pertemuan:
-                                    </span>
-                                    <strong>
-                                        <?= (int)$pk['pertemuan_per_minggu']; ?>x / Minggu
-                                    </strong>
-                                </div>
-
-                                <div class="d-flex justify-content-between mb-2">
-                                    <span class="text-muted">
-                                        <i class="bi bi-calendar3 me-1"></i>
-                                        Durasi:
-                                    </span>
-                                    <strong>
-                                        <?= (int)$pk['durasi_bulan']; ?> Bulan
-                                    </strong>
-                                </div>
-
                                 <div class="d-flex justify-content-between">
                                     <span class="text-muted">
                                         <i class="bi bi-people me-1"></i>
                                         Siswa Terdaftar:
                                     </span>
+
                                     <strong>
-                                        <?= (int)$pk['jumlah_siswa']; ?> Siswa
+                                        <?= (int) $pk['jumlah_siswa']; ?> Siswa
                                     </strong>
                                 </div>
-
                             </div>
 
                             <?php if ($is_admin): ?>
@@ -639,41 +678,24 @@ require_once $root . '/includes/navbar.php';
                                         type="button"
                                         class="btn-paket-edit"
                                         data-bs-toggle="modal"
-                                        data-bs-target="#modalEditPaket<?= (int)$pk['id_paket']; ?>"
+                                        data-bs-target="#modalEditPaket<?= (int) $pk['id_paket']; ?>"
                                     >
                                         <i class="bi bi-pencil"></i>
                                         Edit Paket
                                     </button>
 
                                     <!-- TOMBOL HAPUS -->
-                                    <form
-                                        action="<?= base_url('modules/paket/delete.php'); ?>"
-                                        method="POST"
-                                        onsubmit="return confirm('Apakah Anda yakin ingin menghapus paket <?= htmlspecialchars($pk['nama_paket'], ENT_QUOTES, 'UTF-8'); ?>?');"
-                                        style="display:inline;"
+                                    <button
+                                        type="button"
+                                        class="btn-paket-delete"
+                                        title="Hapus Paket"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#modalKonfirmasiHapus"
+                                        data-id="<?= (int) $pk['id_paket']; ?>"
+                                        data-nama="<?= htmlspecialchars($pk['nama_paket'], ENT_QUOTES, 'UTF-8'); ?>"
                                     >
-
-                                        <input
-                                            type="hidden"
-                                            name="id_paket"
-                                            value="<?= (int)$pk['id_paket']; ?>"
-                                        >
-
-                                        <input
-                                            type="hidden"
-                                            name="csrf_token"
-                                            value="<?= htmlspecialchars($_SESSION['csrf_token']); ?>"
-                                        >
-
-                                        <button
-                                            type="submit"
-                                            class="btn-paket-delete"
-                                            title="Hapus Paket"
-                                        >
-                                            <i class="bi bi-trash"></i>
-                                        </button>
-
-                                    </form>
+                                        <i class="bi bi-trash"></i>
+                                    </button>
 
                                 </div>
 
@@ -689,7 +711,7 @@ require_once $root . '/includes/navbar.php';
                     <!-- MODAL EDIT -->
                     <div
                         class="modal fade paket-modal"
-                        id="modalEditPaket<?= (int)$pk['id_paket']; ?>"
+                        id="modalEditPaket<?= (int) $pk['id_paket']; ?>"
                         tabindex="-1"
                         aria-hidden="true"
                     >
@@ -712,7 +734,7 @@ require_once $root . '/includes/navbar.php';
                                     <input
                                         type="hidden"
                                         name="id_paket"
-                                        value="<?= (int)$pk['id_paket']; ?>"
+                                        value="<?= (int) $pk['id_paket']; ?>"
                                     >
 
                                     <div class="modal-header">
@@ -748,74 +770,52 @@ require_once $root . '/includes/navbar.php';
                                             >
                                         </div>
 
-                                        <div class="row g-3 mb-3">
+                                        <div class="mb-3">
+                                            <label class="form-label">
+                                                Jenjang Pendidikan *
+                                            </label>
 
-                                            <div class="col-md-6">
-                                                <label class="form-label">
-                                                    Jenjang Pendidikan *
-                                                </label>
+                                            <select
+                                                name="jenjang"
+                                                class="form-select"
+                                                required
+                                            >
+                                                <?php
+                                                $jenjangList = [
+                                                    'TK',
+                                                    'SD',
+                                                    'SMP',
+                                                    'SMA',
+                                                    'Semua'
+                                                ];
+                                                ?>
 
-                                                <input
-                                                    type="text"
-                                                    name="jenjang"
-                                                    class="form-control"
-                                                    maxlength="50"
-                                                    value="<?= htmlspecialchars($pk['jenjang']); ?>"
-                                                    required
-                                                >
-                                            </div>
+                                                <?php foreach ($jenjangList as $jenjang): ?>
+                                                    <option
+                                                        value="<?= $jenjang; ?>"
+                                                        <?= $pk['jenjang'] === $jenjang ? 'selected' : ''; ?>
+                                                    >
+                                                        <?= $jenjang; ?>
+                                                    </option>
+                                                <?php endforeach; ?>
 
-                                            <div class="col-md-6">
-                                                <label class="form-label">
-                                                    Harga per Bulan (Rp) *
-                                                </label>
-
-                                                <input
-                                                    type="number"
-                                                    name="harga"
-                                                    class="form-control"
-                                                    value="<?= htmlspecialchars((string)$pk['harga']); ?>"
-                                                    min="1"
-                                                    step="0.01"
-                                                    required
-                                                >
-                                            </div>
-
+                                            </select>
                                         </div>
 
-                                        <div class="row g-3 mb-3">
+                                        <div class="mb-3">
+                                            <label class="form-label">
+                                                Harga per Bulan (Rp) *
+                                            </label>
 
-                                            <div class="col-md-6">
-                                                <label class="form-label">
-                                                    Pertemuan / Minggu
-                                                </label>
-
-                                                <input
-                                                    type="number"
-                                                    name="pertemuan_per_minggu"
-                                                    class="form-control"
-                                                    value="<?= (int)$pk['pertemuan_per_minggu']; ?>"
-                                                    min="1"
-                                                    max="7"
-                                                    required
-                                                >
-                                            </div>
-
-                                            <div class="col-md-6">
-                                                <label class="form-label">
-                                                    Durasi (Bulan)
-                                                </label>
-
-                                                <input
-                                                    type="number"
-                                                    name="durasi_bulan"
-                                                    class="form-control"
-                                                    value="<?= (int)$pk['durasi_bulan']; ?>"
-                                                    min="1"
-                                                    required
-                                                >
-                                            </div>
-
+                                            <input
+                                                type="number"
+                                                name="harga"
+                                                class="form-control"
+                                                value="<?= htmlspecialchars((string) $pk['harga']); ?>"
+                                                min="1"
+                                                step="0.01"
+                                                required
+                                            >
                                         </div>
 
                                         <div class="mb-3">
@@ -828,17 +828,17 @@ require_once $root . '/includes/navbar.php';
                                                 class="form-select"
                                             >
                                                 <option
-                                                    value="Aktif"
-                                                    <?= $pk['status'] === 'Aktif' ? 'selected' : ''; ?>
+                                                    value="aktif"
+                                                    <?= $statusAktif ? 'selected' : ''; ?>
                                                 >
                                                     Aktif
                                                 </option>
 
                                                 <option
-                                                    value="Non-Aktif"
-                                                    <?= $pk['status'] === 'Non-Aktif' ? 'selected' : ''; ?>
+                                                    value="nonaktif"
+                                                    <?= !$statusAktif ? 'selected' : ''; ?>
                                                 >
-                                                    Non-Aktif
+                                                    Nonaktif
                                                 </option>
                                             </select>
                                         </div>
@@ -852,7 +852,6 @@ require_once $root . '/includes/navbar.php';
                                                 name="deskripsi"
                                                 class="form-control"
                                                 rows="4"
-                                                placeholder="Fasilitas, kurikulum pengajaran, dan target pembelajaran..."
                                             ><?= htmlspecialchars($pk['deskripsi'] ?? ''); ?></textarea>
                                         </div>
 
@@ -906,6 +905,104 @@ require_once $root . '/includes/navbar.php';
 
 <?php if ($is_admin): ?>
 
+    <!-- MODAL KONFIRMASI HAPUS -->
+    <div
+        class="modal fade modal-hapus-paket"
+        id="modalKonfirmasiHapus"
+        tabindex="-1"
+        aria-hidden="true"
+    >
+
+        <div class="modal-dialog modal-dialog-centered">
+
+            <div class="modal-content">
+
+                <div class="modal-header">
+
+                    <h5 class="modal-title">
+                        <i class="bi bi-exclamation-triangle text-warning me-2"></i>
+                        Konfirmasi Hapus Paket
+                    </h5>
+
+                    <button
+                        type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                        aria-label="Close"
+                    ></button>
+
+                </div>
+
+                <div class="modal-body text-center">
+
+                    <div class="icon-hapus">
+                        <i class="bi bi-trash3"></i>
+                    </div>
+
+                    <h6 class="fw-bold mb-2">
+                        Apakah Anda yakin?
+                    </h6>
+
+                    <p class="text-muted small mb-2">
+                        Anda akan menghapus paket belajar:
+                    </p>
+
+                    <div
+                        class="nama-paket-hapus"
+                        id="namaPaketHapus"
+                    >
+                        -
+                    </div>
+
+                    <p class="text-muted small mt-3 mb-0">
+                        Tindakan ini tidak dapat dibatalkan.
+                    </p>
+
+                </div>
+
+                <div class="modal-footer">
+
+                    <button
+                        type="button"
+                        class="btn-paket-secondary"
+                        data-bs-dismiss="modal"
+                    >
+                        Batal
+                    </button>
+
+                    <form
+                        action="<?= base_url('modules/paket/delete.php'); ?>"
+                        method="POST"
+                    >
+
+                        <input
+                            type="hidden"
+                            name="id_paket"
+                            id="idPaketHapus"
+                        >
+
+                        <input
+                            type="hidden"
+                            name="csrf_token"
+                            value="<?= htmlspecialchars($_SESSION['csrf_token']); ?>"
+                        >
+
+                        <button
+                            type="submit"
+                            class="btn-konfirmasi-hapus"
+                        >
+                            <i class="bi bi-trash"></i>
+                            Ya, Hapus
+                        </button>
+
+                    </form>
+
+                </div>
+
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL TAMBAH PAKET -->
     <div
         class="modal fade paket-modal"
@@ -956,80 +1053,43 @@ require_once $root . '/includes/navbar.php';
                                 type="text"
                                 name="nama_paket"
                                 class="form-control"
-                                placeholder="Contoh: Paket Intensif Kedinasan 2026"
                                 maxlength="100"
                                 required
                             >
                         </div>
 
-                        <div class="row g-3 mb-3">
+                        <div class="mb-3">
+                            <label class="form-label">
+                                Jenjang Pendidikan *
+                            </label>
 
-                            <div class="col-md-6">
-                                <label class="form-label">
-                                    Jenjang Pendidikan *
-                                </label>
-
-                                <input
-                                    type="text"
-                                    name="jenjang"
-                                    class="form-control"
-                                    placeholder="SD / SMP / SMA / Umum"
-                                    maxlength="50"
-                                    required
-                                >
-                            </div>
-
-                            <div class="col-md-6">
-                                <label class="form-label">
-                                    Harga per Bulan (Rp) *
-                                </label>
-
-                                <input
-                                    type="number"
-                                    name="harga"
-                                    class="form-control"
-                                    placeholder="500000"
-                                    min="1"
-                                    step="0.01"
-                                    required
-                                >
-                            </div>
-
+                            <select
+                                name="jenjang"
+                                class="form-select"
+                                required
+                            >
+                                <option value="">Pilih Jenjang</option>
+                                <option value="TK">TK</option>
+                                <option value="SD">SD</option>
+                                <option value="SMP">SMP</option>
+                                <option value="SMA">SMA</option>
+                                <option value="Semua">Semua</option>
+                            </select>
                         </div>
 
-                        <div class="row g-3 mb-3">
+                        <div class="mb-3">
+                            <label class="form-label">
+                                Harga per Bulan (Rp) *
+                            </label>
 
-                            <div class="col-md-6">
-                                <label class="form-label">
-                                    Pertemuan / Minggu
-                                </label>
-
-                                <input
-                                    type="number"
-                                    name="pertemuan_per_minggu"
-                                    class="form-control"
-                                    value="3"
-                                    min="1"
-                                    max="7"
-                                    required
-                                >
-                            </div>
-
-                            <div class="col-md-6">
-                                <label class="form-label">
-                                    Durasi (Bulan)
-                                </label>
-
-                                <input
-                                    type="number"
-                                    name="durasi_bulan"
-                                    class="form-control"
-                                    value="1"
-                                    min="1"
-                                    required
-                                >
-                            </div>
-
+                            <input
+                                type="number"
+                                name="harga"
+                                class="form-control"
+                                min="1"
+                                step="0.01"
+                                required
+                            >
                         </div>
 
                         <div class="mb-3">
@@ -1041,12 +1101,12 @@ require_once $root . '/includes/navbar.php';
                                 name="status"
                                 class="form-select"
                             >
-                                <option value="Aktif" selected>
+                                <option value="aktif" selected>
                                     Aktif
                                 </option>
 
-                                <option value="Non-Aktif">
-                                    Non-Aktif
+                                <option value="nonaktif">
+                                    Nonaktif
                                 </option>
                             </select>
                         </div>
@@ -1060,7 +1120,6 @@ require_once $root . '/includes/navbar.php';
                                 name="deskripsi"
                                 class="form-control"
                                 rows="4"
-                                placeholder="Fasilitas, kurikulum pengajaran, dan target pembelajaran..."
                             ></textarea>
                         </div>
 
@@ -1093,5 +1152,31 @@ require_once $root . '/includes/navbar.php';
     </div>
 
 <?php endif; ?>
+
+<!-- JAVASCRIPT MODAL KONFIRMASI HAPUS -->
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+    const modalHapus = document.getElementById('modalKonfirmasiHapus');
+
+    if (!modalHapus) {
+        return;
+    }
+
+    modalHapus.addEventListener('show.bs.modal', function (event) {
+
+        const tombol = event.relatedTarget;
+
+        const idPaket = tombol.getAttribute('data-id');
+        const namaPaket = tombol.getAttribute('data-nama');
+
+        document.getElementById('idPaketHapus').value = idPaket;
+
+        document.getElementById('namaPaketHapus').textContent = namaPaket;
+
+    });
+
+});
+</script>
 
 <?php require_once $root . '/includes/footer.php'; ?>

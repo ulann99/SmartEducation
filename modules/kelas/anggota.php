@@ -1,678 +1,431 @@
+
 <?php
 /**
- * Kelola Anggota Siswa Kelas
+ * KELOLA ANGGOTA KELAS
  * SMART EDUCATION PAREPARE
  */
 
 define('BASEPATH', dirname(dirname(__DIR__)));
 require_once BASEPATH . '/config/helper.php';
-
 require_roles(['superadmin', 'admin']);
 
-$id_kelas = (int)($_GET['id'] ?? 0);
+// CSRF Token
+if (empty($_SESSION['csrf_kelas'])) {
+    $_SESSION['csrf_kelas'] = bin2hex(random_bytes(32));
+}
 
-if ($id_kelas <= 0) {
-    set_flash('danger', 'ID Kelas tidak ditemukan!');
+$csrf = $_SESSION['csrf_kelas'];
+$id_kelas = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
+
+if (!$id_kelas) {
+    set_flash('danger', 'ID kelas tidak valid.');
     header('Location: ' . base_url('modules/kelas/index.php'));
     exit;
 }
 
-// ========================================
-// AMBIL DATA KELAS
-// ========================================
+$redirect = base_url('modules/kelas/anggota.php?id=' . $id_kelas);
 
-$stmt_kls = $pdo->prepare("
-    SELECT k.*, p.nama_paket, t.nama_tutor, r.nama_ruangan
-    FROM kelas k
-    JOIN paket_belajar p ON k.id_paket = p.id_paket
-    JOIN tutor t ON k.id_tutor = t.id_tutor
-    LEFT JOIN ruangan r ON k.id_ruangan = r.id_ruangan
-    WHERE k.id_kelas = :id_kelas
-");
+// ==========================================
+// PROSES TAMBAH DAN HAPUS ANGGOTA
+// ==========================================
 
-$stmt_kls->execute([':id_kelas' => $id_kelas]);
-$kelas = $stmt_kls->fetch(PDO::FETCH_ASSOC);
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-if (!$kelas) {
-    set_flash('danger', 'Data kelas tidak ditemukan!');
-    header('Location: ' . base_url('modules/kelas/index.php'));
-    exit;
-}
-
-// ========================================
-// TAMBAH SISWA KE KELAS
-// ========================================
-
-if (
-    $_SERVER['REQUEST_METHOD'] === 'POST' &&
-    ($_POST['action'] ?? '') === 'tambah_anggota'
-) {
-    $id_siswa = (int)($_POST['id_siswa'] ?? 0);
-    $tanggal_gabung = trim($_POST['tanggal_gabung'] ?? date('Y-m-d'));
-
-    if ($id_siswa <= 0) {
-        set_flash('danger', 'Silakan pilih siswa terlebih dahulu!');
-    } else {
-        try {
-            $stmt_check = $pdo->prepare("
-                SELECT id_anggota
-                FROM anggota_kelas
-                WHERE id_kelas = :id_kelas
-                AND id_siswa = :id_siswa
-                LIMIT 1
-            ");
-
-            $stmt_check->execute([
-                ':id_kelas' => $id_kelas,
-                ':id_siswa' => $id_siswa
-            ]);
-
-            if ($stmt_check->fetch()) {
-                set_flash('warning', 'Siswa tersebut sudah terdaftar di kelas ini!');
-            } else {
-                $stmt_capacity = $pdo->prepare("
-                    SELECT COUNT(*)
-                    FROM anggota_kelas
-                    WHERE id_kelas = :id_kelas
-                ");
-
-                $stmt_capacity->execute([':id_kelas' => $id_kelas]);
-                $jumlah_anggota = (int)$stmt_capacity->fetchColumn();
-
-                if ($jumlah_anggota >= (int)$kelas['max_siswa']) {
-                    set_flash('warning', 'Kapasitas kelas sudah penuh!');
-                } else {
-                    $stmt_add = $pdo->prepare("
-                        INSERT INTO anggota_kelas
-                        (id_kelas, id_siswa, tanggal_gabung)
-                        VALUES
-                        (:id_kelas, :id_siswa, :tanggal_gabung)
-                    ");
-
-                    $stmt_add->execute([
-                        ':id_kelas' => $id_kelas,
-                        ':id_siswa' => $id_siswa,
-                        ':tanggal_gabung' => $tanggal_gabung
-                    ]);
-
-                    set_flash('success', 'Siswa berhasil ditambahkan ke kelas!');
-                }
-            }
-        } catch (PDOException $e) {
-            set_flash('danger', 'Gagal menambahkan siswa ke kelas: ' . $e->getMessage());
-        }
+    if (
+        !isset($_POST['csrf_token'], $_SESSION['csrf_kelas']) ||
+        !hash_equals($_SESSION['csrf_kelas'], $_POST['csrf_token'])
+    ) {
+        set_flash('danger', 'Permintaan tidak valid.');
+        header("Location: $redirect");
+        exit;
     }
 
-    header('Location: ' . base_url('modules/kelas/anggota.php?id=' . $id_kelas));
-    exit;
-}
-
-// ========================================
-// KELUARKAN SISWA DARI KELAS
-// ========================================
-
-if (isset($_GET['hapus_anggota'])) {
-    $id_anggota = (int)$_GET['hapus_anggota'];
+    $aksi = $_POST['aksi'] ?? '';
 
     try {
-        $stmt_del = $pdo->prepare("
-            DELETE FROM anggota_kelas
-            WHERE id_anggota = :id_anggota
-            AND id_kelas = :id_kelas
-        ");
 
-        $stmt_del->execute([
-            ':id_anggota' => $id_anggota,
-            ':id_kelas' => $id_kelas
-        ]);
+        // TAMBAH ANGGOTA
+        if ($aksi === 'tambah') {
 
-        set_flash('success', 'Siswa berhasil dikeluarkan dari kelas!');
-    } catch (PDOException $e) {
-        set_flash('danger', 'Gagal mengeluarkan siswa: ' . $e->getMessage());
+            $id_siswa = filter_var(
+                $_POST['id_siswa'] ?? null,
+                FILTER_VALIDATE_INT
+            );
+
+            if (!$id_siswa) {
+                throw new Exception('Silakan pilih siswa.');
+            }
+
+            // Pastikan siswa aktif
+            $cek = $pdo->prepare("
+                SELECT id_siswa
+                FROM siswa
+                WHERE id_siswa = ? AND status_siswa = 'Aktif'
+            ");
+            $cek->execute([$id_siswa]);
+
+            if (!$cek->fetch()) {
+                throw new Exception('Siswa tidak ditemukan atau tidak aktif.');
+            }
+
+            // Cek apakah siswa sudah menjadi anggota
+            $cek = $pdo->prepare("
+                SELECT id_anggota
+                FROM anggota_kelas
+                WHERE id_kelas = ? AND id_siswa = ?
+            ");
+            $cek->execute([$id_kelas, $id_siswa]);
+
+            if ($cek->fetch()) {
+                throw new Exception('Siswa sudah terdaftar di kelas ini.');
+            }
+
+            // Simpan anggota
+            $stmt = $pdo->prepare("
+                INSERT INTO anggota_kelas
+                    (id_kelas, id_siswa, tanggal_gabung)
+                VALUES (?, ?, CURDATE())
+            ");
+            $stmt->execute([$id_kelas, $id_siswa]);
+
+            set_flash('success', 'Siswa berhasil ditambahkan ke kelas.');
+
+        // HAPUS ANGGOTA
+        } elseif ($aksi === 'hapus') {
+
+            $id_anggota = filter_var(
+                $_POST['id_anggota'] ?? null,
+                FILTER_VALIDATE_INT
+            );
+
+            if (!$id_anggota) {
+                throw new Exception('Data anggota tidak valid.');
+            }
+
+            $stmt = $pdo->prepare("
+                DELETE FROM anggota_kelas
+                WHERE id_anggota = ? AND id_kelas = ?
+            ");
+            $stmt->execute([$id_anggota, $id_kelas]);
+
+            if ($stmt->rowCount() < 1) {
+                throw new Exception('Anggota tidak ditemukan.');
+            }
+
+            set_flash('success', 'Siswa berhasil dikeluarkan dari kelas.');
+
+        } else {
+            throw new Exception('Aksi tidak dikenali.');
+        }
+
+    } catch (Exception $e) {
+        set_flash('danger', $e->getMessage());
     }
 
-    header('Location: ' . base_url('modules/kelas/anggota.php?id=' . $id_kelas));
+    header("Location: $redirect");
     exit;
 }
 
-// ========================================
-// AMBIL DAFTAR ANGGOTA KELAS
-// ========================================
+// ==========================================
+// INFORMASI KELAS
+// ==========================================
 
-$stmt_members = $pdo->prepare("
+$stmt = $pdo->prepare("
+    SELECT
+        k.*,
+        t.nama_tutor,
+        r.nama_ruangan
+    FROM kelas k
+    LEFT JOIN tutor t ON k.id_tutor = t.id_tutor
+    LEFT JOIN ruangan r ON k.id_ruangan = r.id_ruangan
+    WHERE k.id_kelas = ?
+");
+$stmt->execute([$id_kelas]);
+$kelas = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$kelas) {
+    set_flash('danger', 'Kelas tidak ditemukan.');
+    header('Location: ' . base_url('modules/kelas/index.php'));
+    exit;
+}
+
+// ==========================================
+// DAFTAR ANGGOTA KELAS
+// ==========================================
+
+$stmt = $pdo->prepare("
     SELECT
         ak.id_anggota,
         ak.tanggal_gabung,
         s.id_siswa,
-        s.nis,
-        s.nama_siswa,
-        s.jenis_kelamin,
-        s.no_telepon,
-        s.status_siswa
+        s.nama_lengkap,
+        s.sekolah_asal,
+        s.kelas AS tingkat_kelas,
+        s.no_hp
     FROM anggota_kelas ak
     JOIN siswa s ON ak.id_siswa = s.id_siswa
-    WHERE ak.id_kelas = :id_kelas
-    ORDER BY s.nama_siswa ASC
+    WHERE ak.id_kelas = ?
+    ORDER BY ak.id_anggota DESC
 ");
+$stmt->execute([$id_kelas]);
+$anggota = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-$stmt_members->execute([':id_kelas' => $id_kelas]);
-$members = $stmt_members->fetchAll(PDO::FETCH_ASSOC);
+// ==========================================
+// DAFTAR SISWA YANG BELUM MENJADI ANGGOTA
+// ==========================================
 
-// ========================================
-// CEK KAPASITAS KELAS
-// ========================================
-
-$jumlah_anggota = count($members);
-$kapasitas = (int)$kelas['max_siswa'];
-$kelas_penuh = ($jumlah_anggota >= $kapasitas);
-
-$pct = $kapasitas > 0
-    ? min(100, round(($jumlah_anggota / $kapasitas) * 100))
-    : 100;
-
-// ========================================
-// AMBIL SISWA YANG BELUM TERDAFTAR
-// ========================================
-
-// ========================================
-// AMBIL SISWA YANG BELUM TERDAFTAR
-// JIKA KELAS BELUM PENUH
-// ========================================
-
-$available_students = [];
-
-if (!$kelas_penuh) {
-
-    $stmt_avail = $pdo->prepare("
-        SELECT id_siswa, nis, nama_siswa
-        FROM siswa
-        WHERE status_siswa = 'Aktif'
-        AND id_siswa NOT IN (
-            SELECT id_siswa
-            FROM anggota_kelas
-            WHERE id_kelas = :id_kelas
-        )
-        ORDER BY nama_siswa ASC
-    ");
-
-    $stmt_avail->execute([
-        ':id_kelas' => $id_kelas
-    ]);
-
-    $available_students = $stmt_avail->fetchAll(PDO::FETCH_ASSOC);
-}
-
-// ========================================
-// INFORMASI HALAMAN
-// ========================================
+$stmt = $pdo->prepare("
+    SELECT
+        s.id_siswa,
+        s.nama_lengkap,
+        s.sekolah_asal,
+        s.kelas
+    FROM siswa s
+    WHERE s.status_siswa = 'Aktif'
+    AND NOT EXISTS (
+        SELECT 1
+        FROM anggota_kelas ak
+        WHERE ak.id_siswa = s.id_siswa
+        AND ak.id_kelas = ?
+    )
+    ORDER BY s.nama_lengkap ASC
+");
+$stmt->execute([$id_kelas]);
+$siswa_list = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 $current_page = 'kelas';
-$page_title = 'Anggota Kelas ' . $kelas['nama_kelas'];
+$page_title = 'Anggota Kelas';
 
 require_once BASEPATH . '/includes/header.php';
 require_once BASEPATH . '/includes/sidebar.php';
 require_once BASEPATH . '/includes/navbar.php';
-
-$jumlah_anggota = count($members);
-$kapasitas = max(1, (int)$kelas['max_siswa']);
-$pct = min(100, round(($jumlah_anggota / $kapasitas) * 100));
 ?>
 
 <style>
-/* =====================================
-   HALAMAN ANGGOTA KELAS
-===================================== */
-
+/* HALAMAN ANGGOTA */
 .anggota-page {
-    width: 100%;
-    padding: 24px 20px 30px !important;
-    box-sizing: border-box;
-    text-align: left !important;
-}
-
-.anggota-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    gap: 20px;
-    width: 100%;
-    margin: 0 0 24px !important;
-    padding: 0 !important;
-}
-
-.anggota-header-left {
-    flex: 1;
-    min-width: 0;
-    text-align: left !important;
-    padding: 0 !important;
-    margin: 0 !important;
-}
-
-/* TOMBOL KEMBALI - PERBAIKAN UTAMA */
-
-.btn-kembali-kelas {
-    display: inline-flex !important;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    min-height: 40px;
-    padding: 10px 17px !important;
-    margin: 0 0 14px !important;
-    background: #258879 !important;
-    border: 1px solid #258879 !important;
-    border-radius: 8px !important;
-    color: #ffffff !important;
-    font-family: inherit;
-    font-size: 13px;
-    font-weight: 600;
-    text-decoration: none !important;
-    cursor: pointer;
-    transition: all .2s ease;
-}
-
-.btn-kembali-kelas:hover {
-    background: #1d7165 !important;
-    border-color: #1d7165 !important;
-    color: #ffffff !important;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 10px rgba(37, 136, 121, .18);
-}
-
-.btn-kembali-kelas i {
-    color: #ffffff !important;
-}
-
-/* JUDUL DAN INFORMASI KELAS */
-
-.anggota-title {
-    margin: 0 0 8px;
-    color: #173f3b;
-    font-size: 24px;
-    font-weight: 700;
-    line-height: 1.4;
-    text-align: left;
-}
-
-.anggota-info {
-    margin: 0;
-    color: #778982;
-    font-size: 12px;
-    line-height: 1.9;
-    text-align: left;
-}
-
-.anggota-info strong {
-    color: #425c55;
-    font-weight: 600;
-}
-
-/* TOMBOL MASUKKAN SISWA */
-
-.btn-masukkan-siswa {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    min-height: 40px;
-    padding: 10px 17px;
-    border: 1px solid #258879;
-    border-radius: 8px;
-    background: #258879;
-    color: #fff;
-    font-family: inherit;
-    font-size: 12px;
-    font-weight: 600;
-    white-space: nowrap;
-    cursor: pointer;
-    transition: .2s ease;
-}
-
-.btn-masukkan-siswa:hover {
-    background: #1d7165;
-    border-color: #1d7165;
-    color: #fff;
+    padding: 22px 24px;
 }
 
 /* KARTU */
-
-.anggota-page .card {
-    border: 1px solid #edf1ef !important;
-    border-radius: 12px;
+.anggota-card {
+    background: #ffffff;
+    border: 1px solid #e5efec;
+    border-radius: 14px;
     overflow: hidden;
+    margin-bottom: 20px;
 }
 
-.anggota-page .progress {
-    background: #e9eef0;
-    border-radius: 20px;
+/* HEADER KELAS */
+.anggota-header {
+    background: #e8fdff;
+    padding: 18px 20px;
+    color: #194b44;
 }
 
-.anggota-page .progress-bar {
-    border-radius: 20px;
+.anggota-header h5 {
+    font-weight: 700;
+    margin: 0 0 6px;
+}
+
+/* KONTEN */
+.anggota-content {
+    padding: 20px;
 }
 
 /* TABEL */
-
-.anggota-page .table {
-    min-width: 850px;
-    margin-bottom: 0;
-}
-
-.anggota-page .table thead th {
-    padding: 13px 12px;
-    background: #eaf9f6;
-    color: #244b45;
-    font-size: 11px;
-    font-weight: 700;
-    border-bottom: 1px solid #e2eeeb;
+.anggota-table th {
+    background: #effbf8;
+    font-size: 12px;
+    color: #194b44;
     white-space: nowrap;
 }
 
-.anggota-page .table tbody td {
-    padding: 13px 12px;
-    color: #425c55;
+.anggota-table td {
     font-size: 12px;
     vertical-align: middle;
-    border-bottom: 1px solid #edf1ef;
 }
 
-.anggota-page .table tbody tr:last-child td {
-    border-bottom: none;
-}
-
-.anggota-page .table tbody tr:hover {
-    background: #f8fcfb;
-}
-
-/* TOMBOL KELUARKAN */
-
-.btn-keluarkan {
+/* TOMBOL KEMBALI */
+.btn-kembali-kelas {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 7px;
-    min-height: 36px;
-    padding: 7px 13px;
-    border: 1px solid #dc3545;
-    border-radius: 7px;
-    background: #fff;
-    color: #dc3545;
-    font-family: inherit;
-    font-size: 12px;
-    font-weight: 500;
-    text-decoration: none;
-    white-space: nowrap;
-    transition: .2s ease;
-}
-
-.btn-keluarkan:hover {
-    background: #dc3545;
-    color: #fff;
-}
-
-/* =====================================
-   MODAL TAMBAH ANGGOTA
-===================================== */
-
-#modalTambahAnggota .modal-content {
-    border: none;
-    border-radius: 13px;
-    overflow: hidden;
-    box-shadow: 0 15px 40px rgba(0,0,0,.12);
-}
-
-#modalTambahAnggota .modal-header {
-    padding: 18px 22px;
-    background: #E8FDFF;
-    border-bottom: 1px solid #e3efed;
-}
-
-#modalTambahAnggota .modal-title {
-    color: #173f3b;
-    font-size: 17px;
-    font-weight: 700;
-}
-
-#modalTambahAnggota .modal-body {
-    padding: 22px;
-}
-
-#modalTambahAnggota .modal-footer {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    gap: 10px;
-    padding: 16px 22px;
-    border-top: 1px solid #e5eeeb;
-}
-
-#modalTambahAnggota .form-label {
-    color: #31544d;
-    font-size: 12px;
-    font-weight: 600;
-    margin-bottom: 8px;
-}
-
-#modalTambahAnggota .form-control,
-#modalTambahAnggota .form-select {
-    min-height: 42px;
-    border: 1px solid #d8e8e3;
-    border-radius: 8px;
-    font-family: inherit;
-    font-size: 13px;
-}
-
-#modalTambahAnggota .form-control:focus,
-#modalTambahAnggota .form-select:focus {
-    border-color: #98EDE1;
-    box-shadow: 0 0 0 3px rgba(152,237,225,.2);
-}
-
-/* TOMBOL MODAL */
-
-#modalTambahAnggota .modal-footer .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    min-width: 105px;
-    min-height: 40px;
-    padding: 9px 16px;
-    border-radius: 7px;
-    font-family: inherit;
-    font-size: 12px;
-    font-weight: 600;
-    text-decoration: none;
-    transition: .2s ease;
-}
-
-#modalTambahAnggota .btn-batal {
-    background: #6c757d;
-    color: #fff;
-    border: 1px solid #6c757d;
-}
-
-#modalTambahAnggota .btn-batal:hover {
-    background: #565e64;
-    border-color: #565e64;
-    color: #fff;
-}
-
-#modalTambahAnggota .btn-simpan-anggota {
+    gap: 6px;
+    padding: 11px 20px;
     background: #258879;
-    color: #fff;
+    color: #ffffff !important;
     border: 1px solid #258879;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none !important;
+    transition: all 0.2s ease;
 }
 
-#modalTambahAnggota .btn-simpan-anggota:hover {
+.btn-kembali-kelas:hover {
     background: #1d7165;
     border-color: #1d7165;
-    color: #fff;
+    color: #ffffff !important;
+    box-shadow: 0 4px 10px rgba(37, 136, 121, 0.2);
+    transform: translateY(-1px);
 }
 
-#modalTambahAnggota .btn:disabled {
-    opacity: .55;
-    cursor: not-allowed;
+/* TOMBOL TAMBAH */
+.btn-tambah-anggota {
+    background: #258879;
+    border-color: #258879;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+.btn-tambah-anggota:hover {
+    background: #1d7165;
+    border-color: #1d7165;
+    color: #ffffff;
 }
 
 /* RESPONSIVE */
-
 @media (max-width: 768px) {
     .anggota-page {
-        width: 100%;
-        padding: 16px 12px !important;
+        padding: 15px;
     }
 
-    .anggota-header {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
-    .anggota-title {
-        font-size: 20px;
-    }
-
-    .btn-masukkan-siswa {
-        width: 100%;
-    }
-
-    #modalTambahAnggota .modal-footer {
-        flex-wrap: wrap;
+    .anggota-content {
+        padding: 15px;
     }
 }
 </style>
 
 <div class="anggota-page">
 
-    <!-- HEADER HALAMAN -->
+    <!-- TOMBOL KEMBALI -->
+    <div class="mb-3">
+        <a href="<?= base_url('modules/kelas/index.php') ?>"
+           class="btn-kembali-kelas">
+            <i class="bi bi-arrow-left"></i>
+            Kembali ke Data Kelas
+        </a>
+    </div>
 
-    <div class="anggota-header">
+    <!-- INFORMASI KELAS -->
+    <div class="anggota-card">
 
-        <div class="anggota-header-left">
-
-            <a href="<?= base_url('modules/kelas/index.php') ?>"
-               class="btn-kembali-kelas">
-                <i class="bi bi-arrow-left"></i>
-                Kembali ke Daftar Kelas
-            </a>
-
-            <h1 class="anggota-title">
-                Kelola Anggota Kelas:
+        <div class="anggota-header">
+            <h5>
+                <i class="bi bi-people me-2"></i>
                 <?= htmlspecialchars($kelas['nama_kelas']) ?>
-            </h1>
+            </h5>
 
-            <p class="anggota-info">
-                Kode:
-                <strong><?= htmlspecialchars($kelas['kode_kelas']) ?></strong>
-
-                <span class="mx-1">|</span>
-
-                Paket:
-                <strong><?= htmlspecialchars($kelas['nama_paket']) ?></strong>
-
-                <span class="mx-1">|</span>
-
+            <small>
                 Tutor:
-                <strong><?= htmlspecialchars($kelas['nama_tutor']) ?></strong>
+                <?= htmlspecialchars($kelas['nama_tutor'] ?? 'Belum ditentukan') ?>
 
-                <span class="mx-1">|</span>
+                &nbsp; | &nbsp;
 
                 Ruangan:
-                <strong><?= htmlspecialchars($kelas['nama_ruangan'] ?? 'Belum ditentukan') ?></strong>
-            </p>
-
+                <?= htmlspecialchars($kelas['nama_ruangan'] ?? 'Belum ditentukan') ?>
+            </small>
         </div>
 
-        <?php if (!$kelas_penuh): ?>
+        <div class="anggota-content">
 
-    <button type="button"
-            class="btn-masukkan-siswa"
-            data-bs-toggle="modal"
-            data-bs-target="#modalTambahAnggota">
-        <i class="bi bi-person-plus-fill"></i>
-        Masukkan Siswa ke Kelas
-    </button>
+            <h6 class="fw-bold mb-3">
+                Tambah Siswa ke Kelas
+            </h6>
 
-<?php else: ?>
+            <form method="POST" class="row g-2">
 
-    <button type="button"
-            class="btn-masukkan-siswa"
-            disabled
-            style="opacity: .6; cursor: not-allowed;">
-        <i class="bi bi-lock-fill"></i>
-        Kelas Sudah Penuh
-    </button>
+                <input type="hidden"
+                       name="csrf_token"
+                       value="<?= htmlspecialchars($csrf) ?>">
 
-<?php endif; ?>
+                <input type="hidden"
+                       name="aksi"
+                       value="tambah">
 
-    </div>
+                <div class="col-md-9">
+                    <select name="id_siswa"
+                            class="form-select"
+                            required>
 
-    <!-- KAPASITAS KELAS -->
+                        <option value="">-- Pilih Siswa --</option>
 
-    <div class="card mb-4 shadow-sm">
-        <div class="card-body p-3">
+                        <?php foreach ($siswa_list as $s): ?>
+                            <option value="<?= (int)$s['id_siswa'] ?>">
+                                <?= htmlspecialchars($s['nama_lengkap']) ?>
+                                - <?= htmlspecialchars($s['kelas']) ?>
+                            </option>
+                        <?php endforeach; ?>
 
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <span class="fw-semibold text-dark">
-                    Kapasitas Kelas:
-                    <?= $jumlah_anggota ?> /
-                    <?= (int)$kelas['max_siswa'] ?> Siswa
-                </span>
-
-                <span class="badge <?= ($pct >= 100) ? 'badge-danger-soft' : 'badge-mint' ?>">
-                    <?= $pct ?>% Terisi
-                </span>
-            </div>
-
-            <div class="progress" style="height: 10px;">
-                <div class="progress-bar <?= ($pct >= 100) ? 'bg-danger' : 'bg-mint-dark' ?>"
-                     role="progressbar"
-                     style="width: <?= $pct ?>%;"
-                     aria-valuenow="<?= $pct ?>"
-                     aria-valuemin="0"
-                     aria-valuemax="100">
+                    </select>
                 </div>
-            </div>
+
+                <div class="col-md-3">
+                    <button type="submit"
+                            class="btn btn-tambah-anggota w-100">
+
+                        <i class="bi bi-plus-circle me-1"></i>
+                        Tambah Siswa
+
+                    </button>
+                </div>
+
+            </form>
+
+            <?php if (empty($siswa_list)): ?>
+                <small class="text-muted d-block mt-2">
+                    Tidak ada siswa aktif lain yang tersedia untuk ditambahkan.
+                </small>
+            <?php endif; ?>
 
         </div>
     </div>
 
-    <!-- DAFTAR ANGGOTA KELAS -->
+    <!-- DAFTAR ANGGOTA -->
+    <div class="anggota-card">
 
-    <div class="card shadow-sm">
+        <div class="anggota-content">
 
-        <div class="card-header bg-white py-3">
-            <h5 class="card-title mb-0 fw-bold text-mint-deep">
-                <i class="bi bi-people-fill me-2 text-mint"></i>
-                Daftar Siswa Terdaftar di Kelas Ini
-                (<?= $jumlah_anggota ?>)
-            </h5>
-        </div>
+            <div class="d-flex justify-content-between align-items-center mb-3">
 
-        <div class="table-responsive">
-            <table class="table table-hover align-middle">
+                <h6 class="fw-bold mb-0">
+                    Daftar Anggota Kelas
+                </h6>
 
-                <thead>
-                    <tr>
-                        <th style="width: 50px;">No</th>
-                        <th>NIS</th>
-                        <th>Nama Siswa</th>
-                        <th>Jenis Kelamin</th>
-                        <th>No. Telepon / WA</th>
-                        <th>Tanggal Bergabung</th>
-                        <th class="text-center" style="width: 130px;">Aksi</th>
-                    </tr>
-                </thead>
+                <span class="badge text-bg-info">
+                    <?= count($anggota) ?> Siswa
+                </span>
 
-                <tbody>
+            </div>
 
-                    <?php if (empty($members)): ?>
+            <div class="table-responsive">
+
+                <table class="table table-hover anggota-table">
+
+                    <thead>
+                        <tr>
+                            <th>No</th>
+                            <th>Nama Siswa</th>
+                            <th>Sekolah Asal</th>
+                            <th>Kelas</th>
+                            <th>Tanggal Bergabung</th>
+                            <th>Aksi</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+
+                    <?php if (empty($anggota)): ?>
 
                         <tr>
-                            <td colspan="7" class="text-center py-5 text-muted">
-                                <i class="bi bi-people fs-3 d-block mb-2"></i>
-                                Belum ada siswa yang dimasukkan ke kelas ini.
-                                <br>
-                                Klik tombol "Masukkan Siswa ke Kelas" untuk menambahkan anggota.
+                            <td colspan="6"
+                                class="text-center text-muted py-5">
+
+                                <i class="bi bi-people fs-2 d-block mb-2"></i>
+
+                                Belum ada siswa yang tergabung dalam kelas ini.
+
                             </td>
                         </tr>
 
@@ -680,168 +433,79 @@ $pct = min(100, round(($jumlah_anggota / $kapasitas) * 100));
 
                         <?php $no = 1; ?>
 
-                        <?php foreach ($members as $m): ?>
+                        <?php foreach ($anggota as $a): ?>
 
                             <tr>
-                                <td><?= $no++ ?></td>
 
                                 <td>
-                                    <span class="badge bg-light text-dark border font-monospace">
-                                        <?= htmlspecialchars($m['nis']) ?>
-                                    </span>
+                                    <?= $no++ ?>
                                 </td>
 
                                 <td>
                                     <strong>
-                                        <?= htmlspecialchars($m['nama_siswa']) ?>
+                                        <?= htmlspecialchars($a['nama_lengkap']) ?>
                                     </strong>
                                 </td>
 
                                 <td>
-                                    <?= htmlspecialchars($m['jenis_kelamin'] ?? '-') ?>
+                                    <?= htmlspecialchars($a['sekolah_asal']) ?>
                                 </td>
 
                                 <td>
-                                    <?= htmlspecialchars($m['no_telepon'] ?? '-') ?>
+                                    <?= htmlspecialchars($a['tingkat_kelas']) ?>
                                 </td>
 
                                 <td>
-                                    <?= format_tanggal($m['tanggal_gabung']) ?>
+                                    <?= date(
+                                        'd-m-Y',
+                                        strtotime($a['tanggal_gabung'])
+                                    ) ?>
                                 </td>
 
-                                <td class="text-center">
-                                    <a href="<?= base_url(
-                                        'modules/kelas/anggota.php?id=' .
-                                        $id_kelas .
-                                        '&hapus_anggota=' .
-                                        $m['id_anggota']
-                                    ) ?>"
-                                       class="btn-keluarkan btn-confirm-delete"
-                                       data-item-name="<?= htmlspecialchars($m['nama_siswa']) ?>"
-                                       title="Keluarkan dari Kelas">
+                                <td>
 
-                                        <i class="bi bi-x-circle"></i>
-                                        Keluarkan
-                                    </a>
+                                    <form method="POST"
+                                          onsubmit="return confirm('Keluarkan siswa ini dari kelas?')">
+
+                                        <input type="hidden"
+                                               name="csrf_token"
+                                               value="<?= htmlspecialchars($csrf) ?>">
+
+                                        <input type="hidden"
+                                               name="aksi"
+                                               value="hapus">
+
+                                        <input type="hidden"
+                                               name="id_anggota"
+                                               value="<?= (int)$a['id_anggota'] ?>">
+
+                                        <button type="submit"
+                                                class="btn btn-sm btn-outline-danger">
+
+                                            <i class="bi bi-person-dash"></i>
+                                            Keluarkan
+
+                                        </button>
+
+                                    </form>
+
                                 </td>
+
                             </tr>
 
                         <?php endforeach; ?>
 
                     <?php endif; ?>
 
-                </tbody>
-            </table>
-        </div>
-    </div>
+                    </tbody>
 
-</div>
+                </table>
 
-<!-- MODAL TAMBAH ANGGOTA -->
-
-<div class="modal fade"
-     id="modalTambahAnggota"
-     tabindex="-1"
-     aria-hidden="true">
-
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-
-            <form action="" method="POST">
-
-                <input type="hidden"
-                       name="action"
-                       value="tambah_anggota">
-
-                <div class="modal-header">
-                    <h5 class="modal-title">
-                        <i class="bi bi-person-plus me-2"></i>
-                        Tambah Siswa ke Kelas
-                    </h5>
-
-                    <button type="button"
-                            class="btn-close"
-                            data-bs-dismiss="modal"
-                            aria-label="Close">
-                    </button>
-                </div>
-
-                <div class="modal-body">
-
-                    <div class="mb-3">
-                        <label class="form-label">
-                            Pilih Siswa
-                            <span class="text-danger">*</span>
-                        </label>
-
-                        <select name="id_siswa"
-                                class="form-select"
-                                required>
-
-                            <option value="">
-                                -- Pilih Siswa Aktif --
-                            </option>
-
-                            <?php foreach ($available_students as $as): ?>
-                                <option value="<?= (int)$as['id_siswa'] ?>">
-                                    <?= htmlspecialchars($as['nama_siswa']) ?>
-                                    (NIS: <?= htmlspecialchars($as['nis']) ?>)
-                                </option>
-                            <?php endforeach; ?>
-
-                        </select>
-
-                        <?php if ($kelas_penuh): ?>
-
-                            <div class="alert alert-warning mt-2 mb-0">
-                                <i class="bi bi-exclamation-triangle-fill me-1"></i>
-                                Kapasitas kelas sudah penuh. Siswa tidak dapat ditambahkan lagi.
-                            </div>
-
-                        <?php elseif (empty($available_students)): ?>
-
-                            <div class="form-text text-warning mt-1">
-                                Semua siswa aktif sudah terdaftar di kelas ini.
-                            </div>
-
-                        <?php endif; ?>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">
-                            Tanggal Bergabung
-                        </label>
-
-                        <input type="date"
-                               name="tanggal_gabung"
-                               class="form-control"
-                               value="<?= date('Y-m-d') ?>"
-                               required>
-                    </div>
-
-                </div>
-
-                <div class="modal-footer">
-
-                    <button type="button"
-                            class="btn btn-batal"
-                            data-bs-dismiss="modal">
-                        Batal
-                    </button>
-
-                    <button type="submit"
-                            class="btn btn-simpan-anggota"
-                            <?= empty($available_students) ? 'disabled' : '' ?>>
-                        <i class="bi bi-check-circle"></i>
-                        Masukkan ke Kelas
-                    </button>
-
-                </div>
-
-            </form>
+            </div>
 
         </div>
     </div>
+
 </div>
 
 <?php require_once BASEPATH . '/includes/footer.php'; ?>

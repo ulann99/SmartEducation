@@ -1,6 +1,7 @@
+
 <?php
 /**
- * Engine Hitung Analisis RFM
+ * ENGINE PERHITUNGAN ANALISIS RFM
  * SMART EDUCATION PAREPARE
  */
 
@@ -11,7 +12,7 @@ require_once BASEPATH . '/config/helper.php';
 require_roles(['superadmin', 'admin']);
 
 // ========================================
-// 1. PERIODE ANALISIS
+// 1. MENENTUKAN PERIODE ANALISIS
 // ========================================
 
 $periode = trim(
@@ -39,15 +40,15 @@ $date_condition = '';
 
 if ($periode === '3 Bulan Terakhir') {
     $date_condition = "
-        AND p.tanggal_bayar >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH)
+        AND pb.tanggal_bayar >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH)
     ";
 } elseif ($periode === '6 Bulan Terakhir') {
     $date_condition = "
-        AND p.tanggal_bayar >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+        AND pb.tanggal_bayar >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
     ";
 } elseif ($periode === '1 Tahun Terakhir') {
     $date_condition = "
-        AND p.tanggal_bayar >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+        AND pb.tanggal_bayar >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
     ";
 }
 
@@ -57,58 +58,78 @@ if ($periode === '3 Bulan Terakhir') {
 
 try {
 
-    // Mengambil data seluruh siswa dan transaksi lunas
+    /*
+     * Mengambil seluruh siswa beserta transaksi
+     * pembayaran yang sudah berhasil.
+     *
+     * Relasi:
+     * siswa.id_siswa
+     *   -> pendaftaran.id_siswa
+     *   -> pembayaran.id_pendaftaran
+     */
+
     $sql = "
         SELECT
             s.id_siswa,
-            s.nama_siswa,
+            s.nama_lengkap,
 
             COALESCE(
-                DATEDIFF(CURDATE(), MAX(p.tanggal_bayar)),
+                DATEDIFF(
+                    CURDATE(),
+                    MAX(pb.tanggal_bayar)
+                ),
                 999
             ) AS recency_days,
 
-            COUNT(p.id_pembayaran) AS frequency_count,
+            COUNT(pb.id_pembayaran) AS frequency_count,
 
             COALESCE(
-                SUM(p.nominal),
+                SUM(pb.jumlah_bayar),
                 0
             ) AS monetary_amount
 
         FROM siswa s
 
-        LEFT JOIN pembayaran p
-            ON s.id_siswa = p.id_siswa
-            AND p.status_pembayaran = 'Lunas'
+        LEFT JOIN pendaftaran pd
+            ON s.id_siswa = pd.id_siswa
+
+        LEFT JOIN pembayaran pb
+            ON pd.id_pendaftaran = pb.id_pendaftaran
+            AND pb.status_pembayaran = 'Berhasil'
             {$date_condition}
 
         GROUP BY
             s.id_siswa,
-            s.nama_siswa
+            s.nama_lengkap
 
-        ORDER BY s.nama_siswa ASC
+        ORDER BY s.nama_lengkap ASC
     ";
 
-    $students_rfm = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+    $stmt = $pdo->query($sql);
 
-    // Memulai transaksi database
+    $students_rfm = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // ========================================
+    // 4. MEMULAI TRANSAKSI DATABASE
+    // ========================================
+
     $pdo->beginTransaction();
 
     // ========================================
-    // 4. HAPUS HASIL ANALISIS PERIODE LAMA
+    // 5. MENGHAPUS HASIL ANALISIS PERIODE LAMA
     // ========================================
 
-    $stmt_del = $pdo->prepare("
+    $stmt_delete = $pdo->prepare("
         DELETE FROM analisis_rfm
         WHERE periode_analisis = :periode
     ");
 
-    $stmt_del->execute([
+    $stmt_delete->execute([
         ':periode' => $periode
     ]);
 
     // ========================================
-    // 5. SIAPKAN QUERY PENYIMPANAN
+    // 6. MENYIAPKAN QUERY PENYIMPANAN
     // ========================================
 
     $stmt_insert = $pdo->prepare("
@@ -141,7 +162,7 @@ try {
     ");
 
     // ========================================
-    // 6. HITUNG SKOR SETIAP SISWA
+    // 7. MENGHITUNG SKOR RFM SETIAP SISWA
     // ========================================
 
     foreach ($students_rfm as $st) {
@@ -152,6 +173,7 @@ try {
 
         // ------------------------------------
         // RECENCY SCORE
+        // Semakin baru pembayaran, semakin tinggi skor.
         // ------------------------------------
 
         if ($r_days <= 30) {
@@ -164,6 +186,7 @@ try {
 
         // ------------------------------------
         // FREQUENCY SCORE
+        // Berdasarkan jumlah transaksi berhasil.
         // ------------------------------------
 
         if ($f_count >= 4) {
@@ -176,6 +199,7 @@ try {
 
         // ------------------------------------
         // MONETARY SCORE
+        // Berdasarkan total nominal pembayaran.
         // ------------------------------------
 
         if ($m_amount >= 1000000) {
@@ -197,20 +221,15 @@ try {
         // ------------------------------------
 
         if ($total_rfm >= 8) {
-
             $segment = 'Pembayar Rutin';
-
         } elseif ($total_rfm >= 5) {
-
             $segment = 'Perlu Pengingat';
-
         } else {
-
             $segment = 'Berisiko';
         }
 
         // ------------------------------------
-        // SIMPAN HASIL ANALISIS
+        // MENYIMPAN HASIL ANALISIS
         // ------------------------------------
 
         $stmt_insert->execute([
@@ -228,7 +247,7 @@ try {
     }
 
     // ========================================
-    // 7. SIMPAN PERUBAHAN
+    // 8. MENYIMPAN PERUBAHAN
     // ========================================
 
     $pdo->commit();
@@ -243,7 +262,7 @@ try {
 
 } catch (Throwable $e) {
 
-    // Batalkan transaksi jika terjadi kesalahan
+    // Membatalkan transaksi jika terjadi kesalahan.
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
     }
@@ -255,7 +274,7 @@ try {
 }
 
 // ========================================
-// 8. KEMBALI KE HALAMAN ANALISIS RFM
+// 9. KEMBALI KE HALAMAN ANALISIS RFM
 // ========================================
 
 header(

@@ -1,3 +1,4 @@
+
 <?php
 /**
  * Delete Pembayaran Action
@@ -9,37 +10,51 @@ require_once BASEPATH . '/config/helper.php';
 require_roles(['superadmin', 'admin']);
 
 $id_pembayaran = (int)($_GET['id'] ?? 0);
+$redirect = base_url('modules/pembayaran/index.php?tab=kelola');
 
-if (empty($id_pembayaran)) {
-    set_flash('danger', 'ID Pembayaran tidak valid!');
-    header('Location: ' . base_url('modules/pembayaran/index.php'));
+if ($id_pembayaran <= 0) {
+    set_flash('danger', 'ID pembayaran tidak valid.');
+    header('Location: ' . $redirect);
     exit;
 }
 
 try {
-    $stmt_code = $pdo->prepare("SELECT kode_transaksi, bukti_pembayaran FROM pembayaran WHERE id_pembayaran = :id LIMIT 1");
-    $stmt_code->execute([':id' => $id_pembayaran]);
-    $pay = $stmt_code->fetch();
+    $stmt = $pdo->prepare("
+        SELECT id_pembayaran, bukti_pembayaran
+        FROM pembayaran
+        WHERE id_pembayaran = :id
+        LIMIT 1
+    ");
+    $stmt->execute([':id' => $id_pembayaran]);
+    $pembayaran = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if ($pay) {
-        if (!empty($pay['bukti_pembayaran'])) {
-            $file_path = BASEPATH . '/assets/images/uploads/' . $pay['bukti_pembayaran'];
-            if (file_exists($file_path)) {
-                @unlink($file_path);
-            }
-        }
-
-        $stmt = $pdo->prepare("DELETE FROM pembayaran WHERE id_pembayaran = :id");
-        $stmt->execute([':id' => $id_pembayaran]);
-
-        set_flash('success', 'Transaksi ' . htmlspecialchars($pay['kode_transaksi']) . ' berhasil dihapus!');
-    } else {
+    if (!$pembayaran) {
         set_flash('danger', 'Data pembayaran tidak ditemukan.');
+        header('Location: ' . $redirect);
+        exit;
     }
+
+    $hapus = $pdo->prepare("
+        DELETE FROM pembayaran
+        WHERE id_pembayaran = :id
+    ");
+    $hapus->execute([':id' => $id_pembayaran]);
+
+    // Hapus file bukti jika memang tersimpan
+    if (!empty($pembayaran['bukti_pembayaran'])) {
+        $file_path = BASEPATH . '/assets/images/uploads/' .
+            basename($pembayaran['bukti_pembayaran']);
+
+        if (is_file($file_path)) {
+            @unlink($file_path);
+        }
+    }
+
+    set_flash('success', 'Data pembayaran berhasil dihapus.');
+
 } catch (PDOException $e) {
     set_flash('danger', 'Gagal menghapus pembayaran: ' . $e->getMessage());
 }
 
-header('Location: ' . base_url('modules/pembayaran/index.php'));
+header('Location: ' . $redirect);
 exit;
-

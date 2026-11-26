@@ -1,13 +1,21 @@
+
 <?php
-session_start();
+// =====================================
+// INISIALISASI DAN KONEKSI
+// =====================================
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 require_once __DIR__ . "/config/koneksi.php";
-define("BASEPATH", __DIR__);
+
+if (!defined("BASEPATH")) {
+    define("BASEPATH", __DIR__);
+}
 
 // =====================================
 // PEMERIKSAAN LOGIN
 // =====================================
-
 if (!isset($_SESSION["login"]) || $_SESSION["login"] !== true) {
     header("Location: modules/auth/login.php");
     exit;
@@ -17,20 +25,28 @@ $nama = $_SESSION["nama_lengkap"] ?? "Administrator";
 $role = $_SESSION["role"] ?? "admin";
 
 if (!in_array($role, ["admin", "superadmin"], true)) {
-    header("Location: dashboard_siswa.php");
+    header("Location: portal_siswa/dashboard_siswa.php");
     exit;
 }
 
 // =====================================
 // KONFIGURASI TEMPLATE
 // =====================================
-
 $current_page = "dashboard";
 $page_title = "Dashboard";
 
 // =====================================
-// FUNGSI JUMLAH DATA
+// FUNGSI BANTUAN DATABASE
 // =====================================
+function dashboardQuery($conn, $sql)
+{
+    try {
+        return mysqli_query($conn, $sql);
+    } catch (Throwable $e) {
+        error_log("Dashboard query error: " . $e->getMessage());
+        return false;
+    }
+}
 
 function jumlahData($conn, $tabel)
 {
@@ -40,7 +56,7 @@ function jumlahData($conn, $tabel)
         return 0;
     }
 
-    $query = mysqli_query(
+    $query = dashboardQuery(
         $conn,
         "SELECT COUNT(*) AS total FROM `$tabel`"
     );
@@ -51,66 +67,74 @@ function jumlahData($conn, $tabel)
 
     $data = mysqli_fetch_assoc($query);
 
-    return (int)($data["total"] ?? 0);
+    return (int) ($data["total"] ?? 0);
+}
+
+function persentase($jumlah, $total)
+{
+    return $total > 0
+        ? (int) round(($jumlah / $total) * 100)
+        : 0;
 }
 
 // =====================================
 // STATISTIK DASHBOARD
 // =====================================
-
 $totalSiswa = jumlahData($conn, "siswa");
 $totalKelas = jumlahData($conn, "kelas");
 $totalTutor = jumlahData($conn, "tutor");
 
 $totalPembayaran = 0;
 
-$queryPembayaran = mysqli_query(
+// Mengambil total pembayaran yang berhasil
+$queryPembayaran = dashboardQuery(
     $conn,
-    "SELECT COALESCE(SUM(nominal), 0) AS total
+    "SELECT COALESCE(SUM(jumlah_bayar), 0) AS total
      FROM pembayaran
-     WHERE status_pembayaran = 'Lunas'"
+     WHERE status_pembayaran = 'Berhasil'"
 );
 
 if ($queryPembayaran) {
     $dataPembayaran = mysqli_fetch_assoc($queryPembayaran);
-    $totalPembayaran = (float)($dataPembayaran["total"] ?? 0);
+    $totalPembayaran = (float) ($dataPembayaran["total"] ?? 0);
 }
 
 // =====================================
 // GRAFIK PEMBAYARAN ENAM BULAN TERAKHIR
 // =====================================
-
 $labelBulan = [];
 $dataGrafikPembayaran = [];
 
-$queryGrafik = mysqli_query(
+$queryGrafik = dashboardQuery(
     $conn,
     "SELECT
-        DATE_FORMAT(MIN(tanggal_bayar), '%b %Y') AS bulan,
-        SUM(nominal) AS total
+        DATE_FORMAT(tanggal_bayar, '%b %Y') AS bulan,
+        SUM(jumlah_bayar) AS total
      FROM pembayaran
-     WHERE status_pembayaran = 'Lunas'
-       AND tanggal_bayar >= DATE_SUB(CURDATE(), INTERVAL 5 MONTH)
+     WHERE status_pembayaran = 'Berhasil'
+       AND tanggal_bayar >= DATE_FORMAT(
+           DATE_SUB(CURDATE(), INTERVAL 5 MONTH),
+           '%Y-%m-01'
+       )
      GROUP BY YEAR(tanggal_bayar), MONTH(tanggal_bayar)
      ORDER BY YEAR(tanggal_bayar), MONTH(tanggal_bayar)"
 );
 
 if ($queryGrafik) {
     while ($row = mysqli_fetch_assoc($queryGrafik)) {
-        $labelBulan[] = $row["bulan"];
-        $dataGrafikPembayaran[] = (float)$row["total"];
+        $labelBulan[] = $row["bulan"] ?? "";
+        $dataGrafikPembayaran[] = (float) ($row["total"] ?? 0);
     }
 }
 
 // =====================================
 // SEGMENTASI RFM
 // =====================================
-
 $jumlahRutin = 0;
 $jumlahPengingat = 0;
 $jumlahBerisiko = 0;
 
-$queryRFM = mysqli_query(
+$queryRFM = dashboardQuery(
     $conn,
     "SELECT segmentasi, COUNT(*) AS total
      FROM analisis_rfm
@@ -119,14 +143,17 @@ $queryRFM = mysqli_query(
 
 if ($queryRFM) {
     while ($row = mysqli_fetch_assoc($queryRFM)) {
-        $segmentasi = strtolower($row["segmentasi"] ?? "");
-        $total = (int)$row["total"];
+        $segmentasi = strtolower((string) ($row["segmentasi"] ?? ""));
+        $total = (int) ($row["total"] ?? 0);
 
         if (strpos($segmentasi, "rutin") !== false) {
             $jumlahRutin += $total;
         } elseif (strpos($segmentasi, "pengingat") !== false) {
             $jumlahPengingat += $total;
-        } elseif (strpos($segmentasi, "risiko") !== false) {
+        } elseif (
+            strpos($segmentasi, "risiko") !== false ||
+            strpos($segmentasi, "berisiko") !== false
+        ) {
             $jumlahBerisiko += $total;
         }
     }
@@ -135,13 +162,7 @@ if ($queryRFM) {
 // =====================================
 // PERSENTASE RFM
 // =====================================
-
 $totalRFM = $jumlahRutin + $jumlahPengingat + $jumlahBerisiko;
-
-function persentase($jumlah, $total)
-{
-    return $total > 0 ? round(($jumlah / $total) * 100) : 0;
-}
 
 $persenRutin = persentase($jumlahRutin, $totalRFM);
 $persenPengingat = persentase($jumlahPengingat, $totalRFM);
@@ -150,7 +171,6 @@ $persenBerisiko = persentase($jumlahBerisiko, $totalRFM);
 // =====================================
 // DATA GRAFIK JSON
 // =====================================
-
 $labelBulanJSON = json_encode(
     $labelBulan,
     JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
@@ -169,18 +189,10 @@ require_once __DIR__ . "/includes/sidebar.php";
 require_once __DIR__ . "/includes/navbar.php";
 ?>
 
-<!-- =====================================
-     STYLE KHUSUS DASHBOARD
-====================================== -->
-
 <style>
-/* AREA DASHBOARD */
-
 .dashboard-content {
     width: 100%;
 }
-
-/* SAMBUTAN */
 
 .dashboard-welcome {
     margin-bottom: 24px;
@@ -198,8 +210,6 @@ require_once __DIR__ . "/includes/navbar.php";
     font-size: 13px;
     margin-bottom: 0;
 }
-
-/* KARTU STATISTIK */
 
 .dashboard-stats {
     display: grid;
@@ -261,8 +271,6 @@ require_once __DIR__ . "/includes/navbar.php";
     font-size: 16px;
 }
 
-/* KARTU GRAFIK */
-
 .dashboard-chart-grid {
     display: grid;
     grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
@@ -308,8 +316,6 @@ require_once __DIR__ . "/includes/navbar.php";
     width: 100%;
     height: 285px;
 }
-
-/* SEGMENTASI RFM */
 
 .dashboard-rfm-list {
     display: flex;
@@ -380,8 +386,6 @@ require_once __DIR__ . "/includes/navbar.php";
     font-size: 12px;
 }
 
-/* RESPONSIVE */
-
 @media (max-width: 1200px) {
     .dashboard-stats {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -447,30 +451,24 @@ require_once __DIR__ . "/includes/navbar.php";
 }
 </style>
 
-<!-- =====================================
-     KONTEN DASHBOARD
-====================================== -->
-
 <div class="dashboard-content">
 
     <!-- SAMBUTAN -->
     <section class="dashboard-welcome">
-
         <h2>
-            Selamat Datang, <?= htmlspecialchars($nama, ENT_QUOTES, 'UTF-8'); ?>!
+            Selamat Datang,
+            <?= htmlspecialchars($nama, ENT_QUOTES, 'UTF-8'); ?>!
         </h2>
 
         <p>
             Kelola kegiatan bimbingan belajar Smart Education dengan mudah melalui dashboard ini.
         </p>
-
     </section>
 
     <!-- STATISTIK -->
     <section class="dashboard-stats">
 
         <div class="dashboard-stat-card">
-
             <div class="dashboard-stat-icon">
                 <i class="bi bi-people"></i>
             </div>
@@ -479,11 +477,9 @@ require_once __DIR__ . "/includes/navbar.php";
                 <p>Total Siswa</p>
                 <h3><?= number_format($totalSiswa, 0, ',', '.'); ?></h3>
             </div>
-
         </div>
 
         <div class="dashboard-stat-card">
-
             <div class="dashboard-stat-icon">
                 <i class="bi bi-easel"></i>
             </div>
@@ -492,11 +488,9 @@ require_once __DIR__ . "/includes/navbar.php";
                 <p>Total Kelas</p>
                 <h3><?= number_format($totalKelas, 0, ',', '.'); ?></h3>
             </div>
-
         </div>
 
         <div class="dashboard-stat-card">
-
             <div class="dashboard-stat-icon">
                 <i class="bi bi-person-workspace"></i>
             </div>
@@ -505,11 +499,9 @@ require_once __DIR__ . "/includes/navbar.php";
                 <p>Total Tutor</p>
                 <h3><?= number_format($totalTutor, 0, ',', '.'); ?></h3>
             </div>
-
         </div>
 
         <div class="dashboard-stat-card">
-
             <div class="dashboard-stat-icon">
                 <i class="bi bi-wallet2"></i>
             </div>
@@ -520,7 +512,6 @@ require_once __DIR__ . "/includes/navbar.php";
                     Rp <?= number_format($totalPembayaran, 0, ',', '.'); ?>
                 </h3>
             </div>
-
         </div>
 
     </section>
@@ -532,7 +523,6 @@ require_once __DIR__ . "/includes/navbar.php";
         <div class="dashboard-panel">
 
             <div class="dashboard-panel-header">
-
                 <h3>
                     <i class="bi bi-bar-chart-line me-2"></i>
                     Grafik Pembayaran
@@ -541,7 +531,6 @@ require_once __DIR__ . "/includes/navbar.php";
                 <span class="dashboard-panel-label">
                     6 Bulan Terakhir
                 </span>
-
             </div>
 
             <div class="dashboard-chart-container">
@@ -554,7 +543,6 @@ require_once __DIR__ . "/includes/navbar.php";
         <div class="dashboard-panel">
 
             <div class="dashboard-panel-header">
-
                 <h3>
                     <i class="bi bi-pie-chart me-2"></i>
                     Segmentasi Siswa (RFM)
@@ -563,16 +551,13 @@ require_once __DIR__ . "/includes/navbar.php";
                 <span class="dashboard-panel-label">
                     Analisis Siswa
                 </span>
-
             </div>
 
             <?php if ($totalRFM > 0): ?>
 
                 <div class="dashboard-rfm-list">
 
-                    <!-- PEMBAYAR RUTIN -->
                     <div class="dashboard-rfm-item">
-
                         <span class="dashboard-rfm-dot rfm-orange"></span>
 
                         <span class="dashboard-rfm-name">
@@ -589,12 +574,9 @@ require_once __DIR__ . "/includes/navbar.php";
                                 style="width: <?= $persenRutin; ?>%">
                             </span>
                         </div>
-
                     </div>
 
-                    <!-- PERLU PENGINGAT -->
                     <div class="dashboard-rfm-item">
-
                         <span class="dashboard-rfm-dot rfm-purple"></span>
 
                         <span class="dashboard-rfm-name">
@@ -611,12 +593,9 @@ require_once __DIR__ . "/includes/navbar.php";
                                 style="width: <?= $persenPengingat; ?>%">
                             </span>
                         </div>
-
                     </div>
 
-                    <!-- BERISIKO -->
                     <div class="dashboard-rfm-item">
-
                         <span class="dashboard-rfm-dot rfm-green"></span>
 
                         <span class="dashboard-rfm-name">
@@ -633,7 +612,6 @@ require_once __DIR__ . "/includes/navbar.php";
                                 style="width: <?= $persenBerisiko; ?>%">
                             </span>
                         </div>
-
                     </div>
 
                 </div>
@@ -655,10 +633,7 @@ require_once __DIR__ . "/includes/navbar.php";
 
 </div>
 
-<!-- =====================================
-     GRAFIK PEMBAYARAN
-====================================== -->
-
+<!-- GRAFIK PEMBAYARAN -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
@@ -667,7 +642,7 @@ const dataPembayaran = <?= $dataPembayaranJSON ?: "[]"; ?>;
 
 const canvasPembayaran = document.getElementById("grafikPembayaran");
 
-if (canvasPembayaran) {
+if (canvasPembayaran && typeof Chart !== "undefined") {
 
     new Chart(canvasPembayaran, {
 
@@ -708,11 +683,9 @@ if (canvasPembayaran) {
                     callbacks: {
 
                         label: function(context) {
-
                             return "Rp " +
                                 new Intl.NumberFormat("id-ID")
                                 .format(context.raw);
-
                         }
 
                     }
@@ -759,11 +732,9 @@ if (canvasPembayaran) {
                         },
 
                         callback: function(value) {
-
                             return new Intl.NumberFormat("id-ID", {
                                 notation: "compact"
                             }).format(value);
-
                         }
 
                     },
@@ -787,6 +758,5 @@ if (canvasPembayaran) {
 // =====================================
 // TEMPLATE FOOTER
 // =====================================
-
 require_once __DIR__ . "/includes/footer.php";
 ?>

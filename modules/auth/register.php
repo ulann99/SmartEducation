@@ -1,334 +1,452 @@
+
 <?php
-// ========================================
-// KONFIGURASI DAN DEBUG PHP
-// ========================================
+/**
+ * REGISTER
+ * SMART EDUCATION PAREPARE
+ * Lokasi: modules/auth/register.php
+ */
 
 ini_set('display_errors', '1');
 ini_set('display_startup_errors', '1');
 error_reporting(E_ALL);
 
-mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+$root = dirname(__DIR__, 2);
+
+if (!defined('BASEPATH')) {
+    define('BASEPATH', $root);
+}
+
+require_once $root . '/config/helper.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-require_once __DIR__ . '/../../config/koneksi.php';
 
-// ========================================
-// FUNGSI BANTUAN
-// ========================================
-
-function register_escape($value) {
-    return htmlspecialchars(
-        (string)($value ?? ''),
-        ENT_QUOTES,
-        'UTF-8'
-    );
-}
-
-function register_rupiah($angka) {
-    return 'Rp ' . number_format((float)$angka, 0, ',', '.');
-}
-
-// ========================================
-// TOKEN KEAMANAN
-// ========================================
-
+/* CSRF */
 if (empty($_SESSION['csrf_register'])) {
     $_SESSION['csrf_register'] = bin2hex(random_bytes(32));
 }
 
 $pesan = '';
-$jenis_pesan = '';
+$daftar_paket = [];
 
-// ========================================
-// AMBIL PAKET BELAJAR
-// ========================================
-
+/* Mengambil paket belajar aktif */
 try {
-    $query_paket = mysqli_query($conn, "
+    $stmt = $pdo->query("
         SELECT id_paket, nama_paket, jenjang, harga
         FROM paket_belajar
-        WHERE status = 'Aktif'
+        WHERE status = 'aktif'
         ORDER BY nama_paket ASC
     ");
-} catch (Throwable $error) {
-    die(
-        "Kesalahan mengambil paket belajar: " .
-        register_escape($error->getMessage())
-    );
+
+    $daftar_paket = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+} catch (PDOException $e) {
+    error_log($e->getMessage());
+    $pesan = 'Data paket belajar gagal dimuat.';
 }
 
-// ========================================
-// PROSES PENDAFTARAN
-// ========================================
-
+/* Proses pendaftaran */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $token = $_POST['csrf_token'] ?? '';
 
     if (
+        !isset($_SESSION['csrf_register']) ||
         !is_string($token) ||
         !hash_equals($_SESSION['csrf_register'], $token)
     ) {
-        $pesan = "Permintaan tidak valid. Silakan muat ulang halaman.";
-        $jenis_pesan = "error";
+        $pesan = 'Permintaan tidak valid. Silakan muat ulang halaman.';
 
     } else {
 
-        $nama = trim($_POST['nama_lengkap'] ?? '');
+        /* DATA AKUN */
         $username = trim($_POST['username'] ?? '');
         $email = trim($_POST['email'] ?? '');
-        $jenis_kelamin = $_POST['jenis_kelamin'] ?? '';
-        $telepon = trim($_POST['no_telepon'] ?? '');
-        $alamat = trim($_POST['alamat'] ?? '');
-        $id_paket_input = $_POST['id_paket'] ?? '';
         $password = $_POST['password'] ?? '';
         $konfirmasi = $_POST['konfirmasi_password'] ?? '';
 
-        // VALIDASI DATA
+        /* DATA SISWA */
+        $nama = trim($_POST['nama_lengkap'] ?? '');
+        $alamat_siswa = trim($_POST['alamat_siswa'] ?? '');
+        $sekolah = trim($_POST['sekolah_asal'] ?? '');
+        $kelas = trim($_POST['kelas'] ?? '');
+        $agama = trim($_POST['agama'] ?? '');
+        $tempat_lahir = trim($_POST['tempat_lahir'] ?? '');
+        $tanggal_lahir = trim($_POST['tanggal_lahir'] ?? '');
+        $no_hp = trim($_POST['no_hp'] ?? '');
+        $no_rumah = trim($_POST['no_rumah'] ?? '');
+
+        /* DATA ORANG TUA */
+        $nama_ayah = trim($_POST['nama_ayah'] ?? '');
+        $nama_ibu = trim($_POST['nama_ibu'] ?? '');
+        $nama_pemberi = trim($_POST['nama_pemberi_informasi'] ?? '');
+        $alamat_orang_tua = trim($_POST['alamat_orang_tua'] ?? '');
+        $no_hp_ayah = trim($_POST['no_hp_ayah'] ?? '');
+        $no_hp_ibu = trim($_POST['no_hp_ibu'] ?? '');
+
+        /* DATA PENDAFTARAN */
+        $id_paket = filter_var(
+            $_POST['id_paket'] ?? null,
+            FILTER_VALIDATE_INT
+        );
+
+        $jenis_program = $_POST['jenis_program'] ?? '';
+        $pilihan_jam = trim($_POST['pilihan_jam'] ?? '');
+        $hari = $_POST['pilihan_hari'] ?? [];
+
+        /* VALIDASI DATA WAJIB */
+        $wajib = [
+            $username,
+            $email,
+            $password,
+            $konfirmasi,
+            $nama,
+            $alamat_siswa,
+            $sekolah,
+            $kelas,
+            $agama,
+            $tempat_lahir,
+            $tanggal_lahir,
+            $no_hp,
+            $nama_ayah,
+            $nama_ibu,
+            $nama_pemberi,
+            $alamat_orang_tua,
+            $no_hp_ayah,
+            $no_hp_ibu,
+            $jenis_program,
+            $pilihan_jam
+        ];
+
+        foreach ($wajib as $nilai) {
+            if ($nilai === '') {
+                $pesan = 'Mohon lengkapi seluruh data yang wajib diisi.';
+                break;
+            }
+        }
+
+        /* VALIDASI USERNAME */
+        if (
+            $pesan === '' &&
+            !preg_match('/^[a-zA-Z0-9._-]{4,50}$/', $username)
+        ) {
+            $pesan = 'Username harus terdiri dari 4 sampai 50 karakter.';
+        }
+
+        /* VALIDASI EMAIL */
+        if (
+            $pesan === '' &&
+            (!filter_var($email, FILTER_VALIDATE_EMAIL) ||
+            mb_strlen($email) > 100)
+        ) {
+            $pesan = 'Format email tidak valid.';
+        }
+
+        /* VALIDASI PASSWORD */
+        if ($pesan === '' && strlen($password) < 8) {
+            $pesan = 'Password minimal 8 karakter.';
+        }
+
+        if ($pesan === '' && $password !== $konfirmasi) {
+            $pesan = 'Konfirmasi password tidak sesuai.';
+        }
+
+        /* VALIDASI PANJANG DATA */
+        if (
+            $pesan === '' &&
+            (
+                mb_strlen($nama) > 150 ||
+                mb_strlen($sekolah) > 150 ||
+                mb_strlen($kelas) > 30 ||
+                mb_strlen($agama) > 30 ||
+                mb_strlen($tempat_lahir) > 100 ||
+                mb_strlen($no_hp) > 20 ||
+                mb_strlen($no_rumah) > 20 ||
+                mb_strlen($nama_ayah) > 150 ||
+                mb_strlen($nama_ibu) > 150 ||
+                mb_strlen($nama_pemberi) > 150 ||
+                mb_strlen($no_hp_ayah) > 20 ||
+                mb_strlen($no_hp_ibu) > 20
+            )
+        ) {
+            $pesan = 'Salah satu data melebihi batas karakter.';
+        }
+
+        /* VALIDASI TANGGAL LAHIR */
+        if ($pesan === '') {
+            $tanggal = DateTime::createFromFormat('Y-m-d', $tanggal_lahir);
+
+            if (
+                !$tanggal ||
+                $tanggal->format('Y-m-d') !== $tanggal_lahir ||
+                $tanggal_lahir > date('Y-m-d')
+            ) {
+                $pesan = 'Tanggal lahir tidak valid.';
+            }
+        }
+
+        /* VALIDASI JENIS PROGRAM */
+        if (
+            $pesan === '' &&
+            !in_array($jenis_program, ['Reguler', 'Privat'], true)
+        ) {
+            $pesan = 'Jenis program tidak valid.';
+        }
+
+        /* VALIDASI HARI */
+        $daftar_hari = [
+            'Senin', 'Selasa', 'Rabu', 'Kamis',
+            'Jumat', 'Sabtu', 'Minggu'
+        ];
+
+        if (!is_array($hari)) {
+            $hari = [];
+        }
+
+        $hari = array_values(array_unique($hari));
 
         if (
-            $nama === '' ||
-            $username === '' ||
-            $email === '' ||
-            $jenis_kelamin === '' ||
-            $password === '' ||
-            $konfirmasi === ''
+            $pesan === '' &&
+            (
+                count($hari) < 1 ||
+                count(array_diff($hari, $daftar_hari)) > 0
+            )
         ) {
-            $pesan = "Mohon lengkapi seluruh kolom wajib.";
-            $jenis_pesan = "error";
+            $pesan = 'Pilih minimal satu hari belajar.';
+        }
 
-        } elseif (strlen($nama) > 100) {
-            $pesan = "Nama lengkap maksimal 100 karakter.";
-            $jenis_pesan = "error";
+        /* VALIDASI JAM */
+        if (
+            $pesan === '' &&
+            !preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $pilihan_jam)
+        ) {
+            $pesan = 'Pilihan jam belajar tidak valid.';
+        }
 
-        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $pesan = "Format email tidak valid.";
-            $jenis_pesan = "error";
+        /* VALIDASI PAKET */
+        $paket_terpilih = null;
 
-        } elseif (strlen($email) > 100) {
-            $pesan = "Email maksimal 100 karakter.";
-            $jenis_pesan = "error";
-
-        } elseif (!in_array($jenis_kelamin, ['Laki-laki', 'Perempuan'], true)) {
-            $pesan = "Jenis kelamin tidak valid.";
-            $jenis_pesan = "error";
-
-        } elseif (!preg_match('/^[a-zA-Z0-9._-]{4,50}$/', $username)) {
-            $pesan = "Username harus 4-50 karakter.";
-            $jenis_pesan = "error";
-
-        } elseif (strlen($password) < 8) {
-            $pesan = "Password minimal 8 karakter.";
-            $jenis_pesan = "error";
-
-        } elseif ($password !== $konfirmasi) {
-            $pesan = "Konfirmasi password tidak sesuai.";
-            $jenis_pesan = "error";
-
-        } elseif (strlen($telepon) > 20) {
-            $pesan = "Nomor telepon maksimal 20 karakter.";
-            $jenis_pesan = "error";
-
-        } else {
-
-            // VALIDASI PAKET BELAJAR
-
-            $id_paket = null;
-
-            if ($id_paket_input !== '') {
-
-                if (!ctype_digit((string)$id_paket_input)) {
-
-                    $pesan = "Pilihan paket tidak valid.";
-                    $jenis_pesan = "error";
-
-                } else {
-
-                    $id_paket = (int)$id_paket_input;
-
-                    try {
-                        $stmt_paket = mysqli_prepare($conn, "
-                            SELECT id_paket
-                            FROM paket_belajar
-                            WHERE id_paket = ?
-                            AND status = 'Aktif'
-                            LIMIT 1
-                        ");
-
-                        mysqli_stmt_bind_param(
-                            $stmt_paket,
-                            "i",
-                            $id_paket
-                        );
-
-                        mysqli_stmt_execute($stmt_paket);
-
-                        $result_paket = mysqli_stmt_get_result($stmt_paket);
-                        $paket_valid = mysqli_num_rows($result_paket) > 0;
-
-                        mysqli_stmt_close($stmt_paket);
-
-                        if (!$paket_valid) {
-                            $pesan = "Paket belajar tidak tersedia.";
-                            $jenis_pesan = "error";
-                        }
-
-                    } catch (Throwable $error) {
-                        die(
-                            "Kesalahan validasi paket: " .
-                            register_escape($error->getMessage())
-                        );
-                    }
+        if ($pesan === '') {
+            foreach ($daftar_paket as $paket) {
+                if ((int)$paket['id_paket'] === (int)$id_paket) {
+                    $paket_terpilih = $paket;
+                    break;
                 }
             }
 
-            // CEK USERNAME DAN EMAIL
+            if (!$paket_terpilih) {
+                $pesan = 'Paket belajar tidak tersedia.';
+            }
+        }
 
-            if ($pesan === '') {
+        /* CEK AKUN DUPLIKAT */
+        if ($pesan === '') {
+            $cek = $pdo->prepare("
+                SELECT id
+                FROM users
+                WHERE username = :username
+                   OR email = :email
+                LIMIT 1
+            ");
 
-                try {
-                    $stmt_cek = mysqli_prepare($conn, "
-                        SELECT id
-                        FROM users
-                        WHERE username = ? OR email = ?
+            $cek->execute([
+                ':username' => $username,
+                ':email' => $email
+            ]);
+
+            if ($cek->fetch(PDO::FETCH_ASSOC)) {
+                $pesan = 'Username atau email sudah digunakan.';
+            }
+        }
+
+        /* PENYIMPANAN DATA */
+        if ($pesan === '') {
+
+            try {
+                $pdo->beginTransaction();
+
+                /* 1. SIMPAN DATA SISWA */
+                $stmt = $pdo->prepare("
+                    INSERT INTO siswa (
+                        nama_lengkap,
+                        alamat_rumah,
+                        sekolah_asal,
+                        kelas,
+                        agama,
+                        tempat_lahir,
+                        tanggal_lahir,
+                        no_hp,
+                        no_rumah,
+                        status_siswa
+                    ) VALUES (
+                        :nama,
+                        :alamat,
+                        :sekolah,
+                        :kelas,
+                        :agama,
+                        :tempat,
+                        :tanggal,
+                        :hp,
+                        :rumah,
+                        'Aktif'
+                    )
+                ");
+
+                $stmt->execute([
+                    ':nama' => $nama,
+                    ':alamat' => $alamat_siswa,
+                    ':sekolah' => $sekolah,
+                    ':kelas' => $kelas,
+                    ':agama' => $agama,
+                    ':tempat' => $tempat_lahir,
+                    ':tanggal' => $tanggal_lahir,
+                    ':hp' => $no_hp,
+                    ':rumah' => $no_rumah !== '' ? $no_rumah : null
+                ]);
+
+                $id_siswa = (int)$pdo->lastInsertId();
+
+                /* 2. SIMPAN DATA ORANG TUA */
+                $stmt = $pdo->prepare("
+                    INSERT INTO orang_tua (
+                        id_siswa,
+                        nama_ayah,
+                        nama_ibu,
+                        nama_pemberi_informasi,
+                        alamat_rumah,
+                        no_hp_ayah,
+                        no_hp_ibu
+                    ) VALUES (
+                        :id_siswa,
+                        :ayah,
+                        :ibu,
+                        :pemberi,
+                        :alamat,
+                        :hp_ayah,
+                        :hp_ibu
+                    )
+                ");
+
+                $stmt->execute([
+                    ':id_siswa' => $id_siswa,
+                    ':ayah' => $nama_ayah,
+                    ':ibu' => $nama_ibu,
+                    ':pemberi' => $nama_pemberi,
+                    ':alamat' => $alamat_orang_tua,
+                    ':hp_ayah' => $no_hp_ayah,
+                    ':hp_ibu' => $no_hp_ibu
+                ]);
+
+                /* 3. MEMBUAT NOMOR REGISTRASI */
+                do {
+                    $nomor_registrasi =
+                        'REG' .
+                        date('Ymd') .
+                        strtoupper(bin2hex(random_bytes(3)));
+
+                    $cek_reg = $pdo->prepare("
+                        SELECT id_pendaftaran
+                        FROM pendaftaran
+                        WHERE nomor_registrasi = ?
                         LIMIT 1
                     ");
 
-                    mysqli_stmt_bind_param(
-                        $stmt_cek,
-                        "ss",
-                        $username,
-                        $email
-                    );
+                    $cek_reg->execute([$nomor_registrasi]);
 
-                    mysqli_stmt_execute($stmt_cek);
+                } while ($cek_reg->fetch());
 
-                    $result_cek = mysqli_stmt_get_result($stmt_cek);
-                    $sudah_ada = mysqli_num_rows($result_cek) > 0;
+                /* 4. SIMPAN PENDAFTARAN */
+                $pilihan_hari = implode(', ', $hari);
 
-                    mysqli_stmt_close($stmt_cek);
+                $stmt = $pdo->prepare("
+                    INSERT INTO pendaftaran (
+                        nomor_registrasi,
+                        id_siswa,
+                        id_paket,
+                        tanggal_pendaftaran,
+                        jenis_program,
+                        pilihan_hari,
+                        pilihan_jam,
+                        biaya_pendaftaran,
+                        status_pendaftaran
+                    ) VALUES (
+                        :nomor,
+                        :siswa,
+                        :paket,
+                        :tanggal,
+                        :program,
+                        :hari,
+                        :jam,
+                        220000,
+                        'Menunggu'
+                    )
+                ");
 
-                    if ($sudah_ada) {
-                        $pesan = "Username atau email sudah digunakan.";
-                        $jenis_pesan = "error";
-                    }
+                $stmt->execute([
+                    ':nomor' => $nomor_registrasi,
+                    ':siswa' => $id_siswa,
+                    ':paket' => $id_paket,
+                    ':tanggal' => date('Y-m-d'),
+                    ':program' => $jenis_program,
+                    ':hari' => $pilihan_hari,
+                    ':jam' => $pilihan_jam
+                ]);
 
-                } catch (Throwable $error) {
-                    die(
-                        "Kesalahan pemeriksaan akun: " .
-                        register_escape($error->getMessage())
-                    );
+                /* 5. SIMPAN AKUN USERS */
+                $hash_password = password_hash(
+                    $password,
+                    PASSWORD_BCRYPT
+                );
+
+                if ($hash_password === false) {
+                    throw new Exception('Gagal membuat password.');
                 }
-            }
 
-            // SIMPAN DATA SISWA DAN AKUN
+                $stmt = $pdo->prepare("
+                    INSERT INTO users (
+                        username,
+                        password,
+                        nama_lengkap,
+                        email,
+                        role,
+                        id_siswa
+                    ) VALUES (
+                        :username,
+                        :password,
+                        :nama,
+                        :email,
+                        'siswa_orang_tua',
+                        :id_siswa
+                    )
+                ");
 
-            if ($pesan === '') {
+                $stmt->execute([
+                    ':username' => $username,
+                    ':password' => $hash_password,
+                    ':nama' => $nama,
+                    ':email' => $email,
+                    ':id_siswa' => $id_siswa
+                ]);
 
-                try {
+                /* SELESAI */
+                $pdo->commit();
 
-                    mysqli_begin_transaction($conn);
+                unset($_SESSION['csrf_register']);
 
-                    $nis = 'SE' . date('ymdHis') . random_int(10, 99);
-                    $tanggal_daftar = date('Y-m-d');
-                    $status_siswa = 'Aktif';
+                header('Location: ' . base_url('modules/auth/login.php?daftar=berhasil'));
+                exit;
 
-                    // SIMPAN SISWA
+            } catch (Throwable $e) {
 
-                    $stmt_siswa = mysqli_prepare($conn, "
-                        INSERT INTO siswa (
-                            nis,
-                            nama_siswa,
-                            jenis_kelamin,
-                            alamat,
-                            no_telepon,
-                            email,
-                            id_paket,
-                            status_siswa,
-                            tanggal_daftar
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ");
-
-                    mysqli_stmt_bind_param(
-                        $stmt_siswa,
-                        "ssssssiss",
-                        $nis,
-                        $nama,
-                        $jenis_kelamin,
-                        $alamat,
-                        $telepon,
-                        $email,
-                        $id_paket,
-                        $status_siswa,
-                        $tanggal_daftar
-                    );
-
-                    mysqli_stmt_execute($stmt_siswa);
-
-                    $id_siswa_baru = mysqli_insert_id($conn);
-
-                    mysqli_stmt_close($stmt_siswa);
-
-                    // HASH PASSWORD BCRYPT
-
-                    $hash_password = password_hash(
-                        $password,
-                        PASSWORD_BCRYPT
-                    );
-
-                    if ($hash_password === false) {
-                        throw new Exception("Gagal mengamankan password.");
-                    }
-
-                    // ROLE SISWA
-
-                    $role = 'siswa';
-
-                    // SIMPAN AKUN PENGGUNA
-
-                    $stmt_user = mysqli_prepare($conn, "
-                        INSERT INTO users (
-                            username,
-                            password,
-                            nama_lengkap,
-                            email,
-                            role,
-                            id_siswa
-                        ) VALUES (?, ?, ?, ?, ?, ?)
-                    ");
-
-                    mysqli_stmt_bind_param(
-                        $stmt_user,
-                        "sssssi",
-                        $username,
-                        $hash_password,
-                        $nama,
-                        $email,
-                        $role,
-                        $id_siswa_baru
-                    );
-
-                    mysqli_stmt_execute($stmt_user);
-
-                    mysqli_stmt_close($stmt_user);
-
-                    mysqli_commit($conn);
-
-                    $_SESSION['csrf_register'] = bin2hex(random_bytes(32));
-
-                    header("Location: login.php?daftar=berhasil");
-                    exit;
-
-                } catch (Throwable $error) {
-
-                    mysqli_rollback($conn);
-
-                    $pesan = "Pendaftaran gagal: " . $error->getMessage();
-                    $jenis_pesan = "error";
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
                 }
+
+                error_log('Register Smart Education: ' . $e->getMessage());
+
+                $pesan = 'Pendaftaran gagal disimpan. Silakan periksa kembali data Anda.';
             }
         }
     }
@@ -337,1081 +455,615 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <!DOCTYPE html>
 <html lang="id">
-
 <head>
-
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Daftar Akun - Smart Education Parepare</title>
+    <title>Daftar Akun - Smart Education</title>
 
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
-    <link
-        href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap"
-        rel="stylesheet"
-    >
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 
     <style>
-
-        /* =====================================
-           RESET DAN VARIABEL
-        ===================================== */
-
         * {
-            margin: 0;
-            padding: 0;
             box-sizing: border-box;
-        }
-
-        :root {
-            --primary: #267A55;
-            --primary-dark: #19583E;
-            --mint: #C7EFE2;
-            --dark: #173B38;
-            --muted: #849087;
-            --border: #D8E2DC;
         }
 
         body {
             min-height: 100vh;
+            margin: 0;
+            padding: 35px 15px;
             font-family: 'Poppins', sans-serif;
 
             display: flex;
             align-items: center;
             justify-content: center;
 
-            padding: 25px 35px;
-
             background:
                 linear-gradient(
-                    rgba(15, 35, 27, 0.38),
-                    rgba(15, 35, 27, 0.38)
+                    rgba(15, 35, 27, 0.48),
+                    rgba(15, 35, 27, 0.48)
                 ),
                 url("../../assets/images/background-login.jpg")
                 center center / cover no-repeat fixed;
-
-            animation: pageFade 0.8s ease both;
         }
-
-        /* =====================================
-           ANIMASI
-        ===================================== */
-
-        @keyframes pageFade {
-            from {
-                opacity: 0;
-            }
-            to {
-                opacity: 1;
-            }
-        }
-
-        @keyframes slideLeft {
-            from {
-                opacity: 0;
-                transform: translateX(-35px);
-            }
-            to {
-                opacity: 1;
-                transform: translateX(0);
-            }
-        }
-
-        @keyframes slideRight {
-            from {
-                opacity: 0;
-                transform: translateX(35px);
-            }
-            to {
-                opacity: 1;
-                transform: translateX(0);
-            }
-        }
-
-        @keyframes softFade {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        /* =====================================
-           CONTAINER UTAMA
-        ===================================== */
 
         .register-container {
             width: 100%;
-            max-width: 1280px;
-
-            display: grid;
-            grid-template-columns: 0.9fr 1.1fr;
-
-            align-items: center;
-            gap: 35px;
+            max-width: 850px;
+            background: #fff;
+            border-radius: 24px;
+            overflow: hidden;
+            box-shadow: 0 15px 45px rgba(0, 0, 0, .22);
         }
 
-        /* =====================================
-           BRANDING KIRI
-        ===================================== */
-
-        .welcome-section {
-            min-width: 0;
-            min-height: 500px;
-
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-
-            padding: 25px 15px;
-
-            color: #FFFFFF;
-            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
-
-            animation: slideLeft 0.9s cubic-bezier(.22, 1, .36, 1) both;
+        .register-header {
+            background: #98EDE1;
+            padding: 25px 35px;
+            text-align: center;
         }
 
-        .brand {
-            display: flex;
-            align-items: center;
-            gap: 20px;
-        }
-
-        .brand img {
-            width: 115px;
-            height: 115px;
-            flex-shrink: 0;
-
-            padding: 8px;
-            border-radius: 22px;
-
-            background: #FFFFFF;
-            object-fit: contain;
-
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.13);
-
-            transition:
-                transform 0.4s cubic-bezier(.22, 1, .36, 1),
-                box-shadow 0.35s ease;
-        }
-
-        .brand img:hover {
-            transform: translateY(-4px) scale(1.035);
-            box-shadow: 0 14px 30px rgba(0, 0, 0, 0.2);
-        }
-
-        .brand-divider {
-            width: 3px;
-            height: 130px;
-            flex-shrink: 0;
-
-            background: #72D6B7;
-            border-radius: 10px;
-        }
-
-        .brand-text {
-            animation: softFade 0.9s ease 0.15s both;
-        }
-
-        .brand-text h1 {
-            color: #FFFFFF;
-            font-size: clamp(34px, 4vw, 50px);
-            line-height: 1.12;
-            font-weight: 800;
-            letter-spacing: -1.5px;
-        }
-
-        .brand-text span {
-            display: inline-block;
-            margin-top: 10px;
-            padding: 6px 20px;
-
-            border-radius: 30px;
-
-            background: var(--mint);
-            color: #16805B;
-
-            font-size: 14px;
-            font-weight: 800;
-            letter-spacing: 7px;
-
-            text-shadow: none;
-        }
-
-        .brand-tagline {
-            max-width: 470px;
-            margin-top: 30px;
-            margin-left: 3px;
-
-            color: #FFFFFF;
-            font-size: 17px;
-            line-height: 1.8;
-
-            animation: softFade 0.9s ease 0.3s both;
-        }
-
-        .brand-line {
-            width: 100px;
-            height: 5px;
-            margin-top: 18px;
-            margin-left: 3px;
-
-            border-radius: 20px;
-            background: #72D6B7;
-
-            animation: softFade 0.9s ease 0.4s both;
-        }
-
-        /* =====================================
-           KARTU FORM
-        ===================================== */
-
-        .form-section {
-            width: 100%;
-            max-width: 690px;
-            justify-self: center;
-
-            padding: 30px 38px;
-
-            background: #FFFFFF;
-            border-radius: 20px;
-
-            box-shadow: 0 15px 45px rgba(0, 0, 0, 0.15);
-
-            animation: slideRight 0.9s cubic-bezier(.22, 1, .36, 1) both;
-
-            transition:
-                box-shadow 0.35s ease,
-                transform 0.35s ease;
-        }
-
-        .form-section:hover {
-            box-shadow: 0 20px 55px rgba(0, 0, 0, 0.17);
-        }
-
-        .form-heading {
-            margin-bottom: 18px;
-            animation: softFade 0.7s ease 0.2s both;
-        }
-
-        .eyebrow {
-            display: inline-block;
-            margin-bottom: 7px;
-
-            color: #39815F;
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 2.5px;
-        }
-
-        .form-heading h2 {
-            margin-bottom: 5px;
-            color: #263C32;
+        .register-header h2 {
+            margin: 0;
+            color: #164c48;
             font-size: 27px;
+            font-weight: 800;
+        }
+
+        .register-header p {
+            margin: 7px 0 0;
+            color: #245e59;
+            font-size: 14px;
+        }
+
+        .register-body {
+            padding: 30px 38px;
+        }
+
+        .section-title {
+            color: #16877c;
+            font-size: 17px;
+            font-weight: 700;
+            margin: 25px 0 18px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #dcefeb;
+        }
+
+        .section-title:first-child {
+            margin-top: 0;
+        }
+
+        .form-label {
+            font-size: 13px;
             font-weight: 600;
+            color: #315b56;
+            margin-bottom: 8px;
         }
 
-        .form-heading p {
-            color: #849087;
-            font-size: 11px;
-            line-height: 1.7;
+        .form-control,
+        .form-select {
+            min-height: 48px;
+            border: 1px solid #d5e8e4;
+            border-radius: 12px;
+            padding: 11px 14px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 14px;
         }
 
-        /* =====================================
-           ALERT
-        ===================================== */
-
-        .alert {
-            padding: 10px 13px;
-            margin-bottom: 14px;
-
-            border-radius: 8px;
-            font-size: 11px;
-            line-height: 1.6;
-            overflow-wrap: anywhere;
+        .form-control:focus,
+        .form-select:focus {
+            border-color: #269b8d;
+            box-shadow: 0 0 0 3px rgba(38, 155, 141, .12);
         }
 
-        .alert.error {
-            background: #FFF0F0;
-            color: #B42318;
-            border: 1px solid #FFD6D6;
+        textarea.form-control {
+            min-height: 90px;
         }
-
-        /* =====================================
-           FORM GRID
-        ===================================== */
-
-        .form-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 11px 15px;
-        }
-
-        .form-group {
-            min-width: 0;
-        }
-
-        .form-group.full {
-            grid-column: 1 / -1;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-
-            color: #465B53;
-            font-size: 10px;
-            font-weight: 600;
-        }
-
-        .required {
-            color: #D14343;
-        }
-
-        .form-group input,
-        .form-group select,
-        .form-group textarea {
-            width: 100%;
-            height: 41px;
-            padding: 0 11px;
-
-            border: 1px solid var(--border);
-            border-radius: 9px;
-
-            outline: none;
-
-            color: #263C32;
-            background: #FBFDFC;
-
-            font-family: inherit;
-            font-size: 10px;
-
-            transition:
-                border-color 0.25s ease,
-                box-shadow 0.25s ease,
-                background-color 0.25s ease,
-                transform 0.25s ease;
-        }
-
-        .form-group textarea {
-            height: 53px;
-            padding: 9px 11px;
-            resize: vertical;
-        }
-
-        .form-group input:hover,
-        .form-group select:hover,
-        .form-group textarea:hover {
-            border-color: #A9CDBB;
-        }
-
-        .form-group input:focus,
-        .form-group select:focus,
-        .form-group textarea:focus {
-            border-color: var(--primary);
-            background: #FFFFFF;
-            box-shadow: 0 0 0 4px rgba(38, 122, 85, 0.09);
-            transform: translateY(-1px);
-        }
-
-        .form-group input::placeholder,
-        .form-group textarea::placeholder {
-            color: #929B96;
-        }
-
-        /* =====================================
-           PASSWORD
-        ===================================== */
 
         .password-wrapper {
             position: relative;
         }
 
-        .password-wrapper input {
-            padding-right: 65px;
+        .password-wrapper .form-control {
+            padding-right: 75px;
         }
 
         .toggle-password {
             position: absolute;
+            right: 13px;
             top: 50%;
-            right: 11px;
             transform: translateY(-50%);
-
             border: none;
             background: transparent;
-
-            color: #26734F;
-            font-family: inherit;
-            font-size: 9px;
+            color: #16877c;
+            font-size: 12px;
             font-weight: 600;
+        }
 
+        .hari-wrapper {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .hari-item {
+            border: 1px solid #d5e8e4;
+            border-radius: 10px;
+            padding: 9px 13px;
+            font-size: 13px;
+            color: #315b56;
             cursor: pointer;
-
-            transition:
-                color 0.25s ease,
-                transform 0.25s ease;
         }
 
-        .toggle-password:hover {
-            color: var(--primary-dark);
-            transform: translateY(-50%) scale(1.05);
+        .hari-item input {
+            margin-right: 5px;
+            accent-color: #258c80;
         }
 
-        .password-note {
-            display: block;
-            margin-top: 4px;
-
-            color: #849087;
-            font-size: 9px;
-        }
-
-        /* =====================================
-           TOMBOL DAFTAR
-        ===================================== */
-
-        .submit-btn {
-            position: relative;
-            overflow: hidden;
-
+        .btn-register {
             width: 100%;
-            height: 47px;
-            margin-top: 17px;
-
+            min-height: 50px;
             border: none;
-            border-radius: 9px;
-
-            background: var(--primary);
-            color: #FFFFFF;
-
-            font-family: inherit;
-            font-size: 11px;
+            border-radius: 12px;
+            background: #258c80;
+            color: #fff;
+            font-family: 'Poppins', sans-serif;
+            font-size: 15px;
             font-weight: 700;
-
-            cursor: pointer;
-
-            transition:
-                background 0.3s ease,
-                transform 0.3s ease,
-                box-shadow 0.3s ease;
+            transition: .2s;
         }
 
-        .submit-btn:hover {
-            background: var(--primary-dark);
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(38, 115, 79, 0.2);
+        .btn-register:hover {
+            background: #176f65;
+            color: #fff;
         }
-
-        .submit-btn:active {
-            transform: translateY(0) scale(0.985);
-            box-shadow: none;
-        }
-
-        .submit-btn span {
-            display: inline-block;
-            margin-left: 9px;
-            font-size: 14px;
-
-            transition: transform 0.3s ease;
-        }
-
-        .submit-btn:hover span {
-            transform: translateX(5px);
-        }
-
-        /* =====================================
-           LOGIN DAN FOOTER
-        ===================================== */
 
         .login-link {
-            margin-top: 15px;
-
-            color: #849087;
-            font-size: 10px;
             text-align: center;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #687f7b;
         }
 
         .login-link a {
-            color: #26734F;
+            color: #16877c;
             font-weight: 700;
             text-decoration: none;
-
-            transition:
-                color 0.25s ease,
-                letter-spacing 0.25s ease;
         }
 
-        .login-link a:hover {
-            color: var(--primary-dark);
-            letter-spacing: 0.2px;
+        .required {
+            color: #dc3545;
         }
 
-        .form-footer {
-            margin-top: 14px;
-
-            color: #A0ACA5;
-            font-size: 9px;
-            text-align: center;
-        }
-
-        /* =====================================
-           RESPONSIVE LAPTOP
-        ===================================== */
-
-        @media (max-width: 1100px) {
-
-            .register-container {
-                grid-template-columns: 0.8fr 1.2fr;
-                gap: 20px;
-            }
-
-            .brand {
-                gap: 12px;
-            }
-
-            .brand img {
-                width: 85px;
-                height: 85px;
-            }
-
-            .brand-divider {
-                height: 100px;
-            }
-
-            .brand-text h1 {
-                font-size: 32px;
-            }
-
-            .brand-text span {
-                font-size: 10px;
-                letter-spacing: 5px;
-            }
-
-            .brand-tagline {
-                font-size: 14px;
-            }
-
-            .form-section {
-                padding: 25px;
-            }
-        }
-
-        /* =====================================
-           RESPONSIVE TABLET
-        ===================================== */
-
-        @media (max-width: 800px) {
-
+        @media (max-width: 600px) {
             body {
-                padding: 20px 14px;
-                background-attachment: scroll;
+                padding: 15px 10px;
             }
 
-            .register-container {
-                max-width: 560px;
-                grid-template-columns: 1fr;
-                gap: 18px;
+            .register-header {
+                padding: 22px 15px;
             }
 
-            .welcome-section {
-                min-height: auto;
-                padding: 10px 5px;
+            .register-body {
+                padding: 22px 18px;
             }
 
-            .brand {
-                justify-content: center;
-            }
-
-            .brand img {
-                width: 65px;
-                height: 65px;
-            }
-
-            .brand-divider {
-                height: 75px;
-            }
-
-            .brand-text h1 {
-                font-size: 27px;
-            }
-
-            .brand-text span {
-                margin-top: 6px;
-                font-size: 9px;
-                letter-spacing: 4px;
-            }
-
-            .brand-tagline {
-                margin: 12px auto 0;
-                text-align: center;
-                font-size: 12px;
-            }
-
-            .brand-line {
-                width: 70px;
-                height: 4px;
-                margin: 10px auto 0;
-            }
-
-            .form-section {
-                max-width: 560px;
-                padding: 25px;
+            .register-header h2 {
+                font-size: 22px;
             }
         }
-
-        /* =====================================
-           RESPONSIVE HP
-        ===================================== */
-
-        @media (max-width: 480px) {
-
-            body {
-                padding: 14px 10px;
-            }
-
-            .brand {
-                gap: 10px;
-            }
-
-            .brand img {
-                width: 55px;
-                height: 55px;
-            }
-
-            .brand-divider {
-                height: 65px;
-                width: 2px;
-            }
-
-            .brand-text h1 {
-                font-size: 23px;
-            }
-
-            .brand-text span {
-                padding: 5px 9px;
-                font-size: 8px;
-                letter-spacing: 3px;
-            }
-
-            .brand-tagline {
-                font-size: 11px;
-            }
-
-            .form-section {
-                padding: 22px 17px;
-                border-radius: 15px;
-            }
-
-            .form-heading h2 {
-                font-size: 24px;
-            }
-
-            .form-grid {
-                grid-template-columns: 1fr;
-                gap: 10px;
-            }
-
-            .form-group.full {
-                grid-column: auto;
-            }
-
-            .form-group input,
-            .form-group select {
-                height: 42px;
-            }
-
-            .submit-btn {
-                height: 45px;
-            }
-        }
-
-        /* =====================================
-           AKSESIBILITAS ANIMASI
-        ===================================== */
-
-        @media (prefers-reduced-motion: reduce) {
-
-            *,
-            *::before,
-            *::after {
-                animation-duration: 0.01ms !important;
-                animation-iteration-count: 1 !important;
-                transition-duration: 0.01ms !important;
-                scroll-behavior: auto !important;
-            }
-        }
-
     </style>
-
 </head>
 
 <body>
 
 <div class="register-container">
 
-    <!-- ==================================
-         BRANDING SMART EDUCATION
-    ================================== -->
+    <div class="register-header">
+        <h2>Daftar Akun</h2>
+        <p>Smart Education Parepare</p>
+    </div>
 
-    <section class="welcome-section">
-
-        <div class="brand">
-
-            <img
-                src="../../assets/images/logo.png"
-                alt="Logo Smart Education"
-            >
-
-            <div class="brand-divider"></div>
-
-            <div class="brand-text">
-
-                <h1>
-                    Smart<br>
-                    Education
-                </h1>
-
-                <span>PAREPARE</span>
-
-            </div>
-
-        </div>
-
-        <p class="brand-tagline">
-            Bimbingan Belajar Berkualitas
-            untuk Masa Depan yang Lebih Baik.
-        </p>
-
-        <div class="brand-line"></div>
-
-    </section>
-
-
-    <!-- ==================================
-         FORM DAFTAR AKUN
-    ================================== -->
-
-    <section class="form-section">
-
-        <div class="form-heading">
-
-            <div class="eyebrow">
-                CREATE YOUR ACCOUNT
-            </div>
-
-            <h2>Daftar Akun</h2>
-
-            <p>
-                Lengkapi data diri Anda untuk bergabung
-                bersama Smart Education.
-            </p>
-
-        </div>
+    <div class="register-body">
 
         <?php if ($pesan !== ''): ?>
-
-            <div class="alert <?= register_escape($jenis_pesan); ?>">
-                <?= register_escape($pesan); ?>
+            <div class="alert alert-danger">
+                <?= htmlspecialchars($pesan, ENT_QUOTES, 'UTF-8') ?>
             </div>
-
         <?php endif; ?>
 
+        <form method="POST"
+              action=""
+              autocomplete="off">
 
-        <form method="POST" action="" autocomplete="off">
+            <input type="hidden"
+                   name="csrf_token"
+                   value="<?= htmlspecialchars($_SESSION['csrf_register'], ENT_QUOTES, 'UTF-8') ?>">
 
-            <input
-                type="hidden"
-                name="csrf_token"
-                value="<?= register_escape($_SESSION['csrf_register']); ?>"
-            >
+            <!-- INFORMASI AKUN -->
+            <h5 class="section-title">
+                <i class="bi bi-person-lock me-2"></i>
+                Informasi Akun
+            </h5>
 
-            <div class="form-grid">
+            <div class="row g-3">
 
-                <!-- NAMA LENGKAP -->
-
-                <div class="form-group">
-
-                    <label>
-                        Nama Lengkap <span class="required">*</span>
-                    </label>
-
-                    <input
-                        type="text"
-                        name="nama_lengkap"
-                        placeholder="Masukkan nama lengkap"
-                        maxlength="100"
-                        value="<?= register_escape($_POST['nama_lengkap'] ?? ''); ?>"
-                        required
-                    >
-
-                </div>
-
-
-                <!-- USERNAME -->
-
-                <div class="form-group">
-
-                    <label>
+                <div class="col-md-6">
+                    <label class="form-label">
                         Username <span class="required">*</span>
                     </label>
-
-                    <input
-                        type="text"
-                        name="username"
-                        placeholder="Masukkan username"
-                        minlength="4"
-                        maxlength="50"
-                        value="<?= register_escape($_POST['username'] ?? ''); ?>"
-                        required
-                    >
-
+                    <input type="text"
+                           name="username"
+                           class="form-control"
+                           placeholder=""
+                           autocomplete="off"
+                           required>
                 </div>
 
-
-                <!-- EMAIL -->
-
-                <div class="form-group full">
-
-                    <label>
+                <div class="col-md-6">
+                    <label class="form-label">
                         Email <span class="required">*</span>
                     </label>
-
-                    <input
-                        type="email"
-                        name="email"
-                        placeholder="Masukkan alamat email"
-                        maxlength="100"
-                        value="<?= register_escape($_POST['email'] ?? ''); ?>"
-                        required
-                    >
-
+                    <input type="email"
+                           name="email"
+                           class="form-control"
+                           placeholder=""
+                           autocomplete="off"
+                           required>
                 </div>
 
-
-                <!-- JENIS KELAMIN -->
-
-                <div class="form-group">
-
-                    <label>
-                        Jenis Kelamin <span class="required">*</span>
-                    </label>
-
-                    <select name="jenis_kelamin" required>
-
-                        <option value="">Pilih jenis kelamin</option>
-
-                        <option
-                            value="Laki-laki"
-                            <?= (($_POST['jenis_kelamin'] ?? '') === 'Laki-laki') ? 'selected' : ''; ?>
-                        >
-                            Laki-laki
-                        </option>
-
-                        <option
-                            value="Perempuan"
-                            <?= (($_POST['jenis_kelamin'] ?? '') === 'Perempuan') ? 'selected' : ''; ?>
-                        >
-                            Perempuan
-                        </option>
-
-                    </select>
-
-                </div>
-
-
-                <!-- NOMOR TELEPON -->
-
-                <div class="form-group">
-
-                    <label>Nomor Telepon</label>
-
-                    <input
-                        type="tel"
-                        name="no_telepon"
-                        placeholder="Masukkan nomor telepon"
-                        maxlength="20"
-                        value="<?= register_escape($_POST['no_telepon'] ?? ''); ?>"
-                    >
-
-                </div>
-
-
-                <!-- ALAMAT -->
-
-                <div class="form-group full">
-
-                    <label>Alamat</label>
-
-                    <textarea
-                        name="alamat"
-                        placeholder="Masukkan alamat tempat tinggal"
-                    ><?= register_escape($_POST['alamat'] ?? ''); ?></textarea>
-
-                </div>
-
-
-                <!-- PAKET BELAJAR -->
-
-                <div class="form-group full">
-
-                    <label>Paket Belajar</label>
-
-                    <select name="id_paket">
-
-                        <option value="">
-                            Pilih paket belajar (opsional)
-                        </option>
-
-                        <?php while ($paket = mysqli_fetch_assoc($query_paket)): ?>
-
-                            <option
-                                value="<?= register_escape($paket['id_paket']); ?>"
-                                <?= (($_POST['id_paket'] ?? '') == $paket['id_paket']) ? 'selected' : ''; ?>
-                            >
-                                <?= register_escape($paket['nama_paket']); ?>
-                                - <?= register_escape($paket['jenjang']); ?>
-                                (<?= register_rupiah($paket['harga']); ?>)
-                            </option>
-
-                        <?php endwhile; ?>
-
-                    </select>
-
-                </div>
-
-
-                <!-- PASSWORD -->
-
-                <div class="form-group">
-
-                    <label>
+                <div class="col-md-6">
+                    <label class="form-label">
                         Password <span class="required">*</span>
                     </label>
 
                     <div class="password-wrapper">
+                        <input type="password"
+                               name="password"
+                               id="password"
+                               class="form-control"
+                               placeholder=""
+                               autocomplete="new-password"
+                               required>
 
-                        <input
-                            type="password"
-                            name="password"
-                            id="password"
-                            placeholder="Buat password"
-                            minlength="8"
-                            required
-                        >
-
-                        <button
-                            type="button"
-                            class="toggle-password"
-                            onclick="togglePassword('password', this)"
-                        >
+                        <button type="button"
+                                class="toggle-password"
+                                onclick="togglePassword('password', this)">
                             Lihat
                         </button>
-
                     </div>
 
-                    <span class="password-note">
-                        Minimal 8 karakter.
-                    </span>
-
+                    <small class="text-muted">Minimal 8 karakter.</small>
                 </div>
 
-
-                <!-- KONFIRMASI PASSWORD -->
-
-                <div class="form-group">
-
-                    <label>
+                <div class="col-md-6">
+                    <label class="form-label">
                         Konfirmasi Password <span class="required">*</span>
                     </label>
 
                     <div class="password-wrapper">
+                        <input type="password"
+                               name="konfirmasi_password"
+                               id="konfirmasi_password"
+                               class="form-control"
+                               placeholder=""
+                               autocomplete="new-password"
+                               required>
 
-                        <input
-                            type="password"
-                            name="konfirmasi_password"
-                            id="konfirmasi_password"
-                            placeholder="Ulangi password"
-                            minlength="8"
-                            required
-                        >
-
-                        <button
-                            type="button"
-                            class="toggle-password"
-                            onclick="togglePassword('konfirmasi_password', this)"
-                        >
+                        <button type="button"
+                                class="toggle-password"
+                                onclick="togglePassword('konfirmasi_password', this)">
                             Lihat
                         </button>
-
                     </div>
-
                 </div>
 
             </div>
 
+            <!-- DATA SISWA -->
+            <h5 class="section-title">
+                <i class="bi bi-mortarboard me-2"></i>
+                Data Siswa
+            </h5>
 
-            <!-- TOMBOL DAFTAR -->
+            <div class="row g-3">
 
-            <button type="submit" class="submit-btn">
-                Daftar Sekarang <span>→</span>
-            </button>
+                <div class="col-md-6">
+                    <label class="form-label">
+                        Nama Lengkap <span class="required">*</span>
+                    </label>
+                    <input type="text"
+                           name="nama_lengkap"
+                           class="form-control"
+                           placeholder=""
+                           required>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">
+                        Sekolah Asal <span class="required">*</span>
+                    </label>
+                    <input type="text"
+                           name="sekolah_asal"
+                           class="form-control"
+                           placeholder=""
+                           required>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">
+                        Kelas <span class="required">*</span>
+                    </label>
+                    <input type="text"
+                           name="kelas"
+                           class="form-control"
+                           placeholder=""
+                           required>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">
+                        Agama <span class="required">*</span>
+                    </label>
+                    <select name="agama" class="form-select" required>
+                        <option value="">Pilih Agama</option>
+                        <option value="Islam">Islam</option>
+                        <option value="Kristen">Kristen</option>
+                        <option value="Katolik">Katolik</option>
+                        <option value="Hindu">Hindu</option>
+                        <option value="Buddha">Buddha</option>
+                        <option value="Konghucu">Konghucu</option>
+                    </select>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">
+                        Tempat Lahir <span class="required">*</span>
+                    </label>
+                    <input type="text"
+                           name="tempat_lahir"
+                           class="form-control"
+                           placeholder=""
+                           required>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">
+                        Tanggal Lahir <span class="required">*</span>
+                    </label>
+                    <input type="date"
+                           name="tanggal_lahir"
+                           class="form-control"
+                           max="<?= date('Y-m-d') ?>"
+                           required>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">
+                        Nomor HP <span class="required">*</span>
+                    </label>
+                    <input type="tel"
+                           name="no_hp"
+                           class="form-control"
+                           placeholder=""
+                           required>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Nomor Rumah</label>
+                    <input type="text"
+                           name="no_rumah"
+                           class="form-control"
+                           placeholder="">
+                </div>
+
+                <div class="col-12">
+                    <label class="form-label">
+                        Alamat Rumah <span class="required">*</span>
+                    </label>
+                    <textarea name="alamat_siswa"
+                              class="form-control"
+                              placeholder=""
+                              required></textarea>
+                </div>
+
+            </div>
+
+            <!-- DATA ORANG TUA -->
+            <h5 class="section-title">
+                <i class="bi bi-people me-2"></i>
+                Data Orang Tua / Wali
+            </h5>
+
+            <div class="row g-3">
+
+                <div class="col-md-6">
+                    <label class="form-label">
+                        Nama Ayah <span class="required">*</span>
+                    </label>
+                    <input type="text"
+                           name="nama_ayah"
+                           class="form-control"
+                           placeholder=""
+                           required>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">
+                        Nama Ibu <span class="required">*</span>
+                    </label>
+                    <input type="text"
+                           name="nama_ibu"
+                           class="form-control"
+                           placeholder=""
+                           required>
+                </div>
+
+                <div class="col-12">
+                    <label class="form-label">
+                        Nama Pemberi Informasi <span class="required">*</span>
+                    </label>
+                    <input type="text"
+                           name="nama_pemberi_informasi"
+                           class="form-control"
+                           placeholder=""
+                           required>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">
+                        Nomor HP Ayah <span class="required">*</span>
+                    </label>
+                    <input type="tel"
+                           name="no_hp_ayah"
+                           class="form-control"
+                           placeholder=""
+                           required>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">
+                        Nomor HP Ibu <span class="required">*</span>
+                    </label>
+                    <input type="tel"
+                           name="no_hp_ibu"
+                           class="form-control"
+                           placeholder=""
+                           required>
+                </div>
+
+                <div class="col-12">
+                    <label class="form-label">
+                        Alamat Orang Tua <span class="required">*</span>
+                    </label>
+                    <textarea name="alamat_orang_tua"
+                              class="form-control"
+                              placeholder=""
+                              required></textarea>
+                </div>
+
+            </div>
+
+            <!-- INFORMASI PENDAFTARAN -->
+            <h5 class="section-title">
+                <i class="bi bi-journal-check me-2"></i>
+                Informasi Pendaftaran
+            </h5>
+
+            <div class="row g-3">
+
+                <div class="col-md-6">
+                    <label class="form-label">
+                        Paket Belajar <span class="required">*</span>
+                    </label>
+
+                    <select name="id_paket"
+                            class="form-select"
+                            required>
+
+                        <option value="">Pilih Paket Belajar</option>
+
+                        <?php foreach ($daftar_paket as $paket): ?>
+                            <option value="<?= (int)$paket['id_paket'] ?>">
+                                <?= htmlspecialchars($paket['nama_paket'], ENT_QUOTES, 'UTF-8') ?>
+                                - <?= htmlspecialchars($paket['jenjang'], ENT_QUOTES, 'UTF-8') ?>
+                                (Rp <?= number_format((float)$paket['harga'], 0, ',', '.') ?>)
+                            </option>
+                        <?php endforeach; ?>
+
+                    </select>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">
+                        Jenis Program <span class="required">*</span>
+                    </label>
+
+                    <select name="jenis_program"
+                            class="form-select"
+                            required>
+                        <option value="">Pilih Program</option>
+                        <option value="Reguler">Reguler</option>
+                        <option value="Privat">Privat</option>
+                    </select>
+                </div>
+
+                <div class="col-12">
+                    <label class="form-label">
+                        Pilihan Hari <span class="required">*</span>
+                    </label>
+
+                    <div class="hari-wrapper">
+                        <?php
+                        $hari_list = [
+                            'Senin', 'Selasa', 'Rabu',
+                            'Kamis', 'Jumat', 'Sabtu', 'Minggu'
+                        ];
+                        ?>
+
+                        <?php foreach ($hari_list as $h): ?>
+                            <label class="hari-item">
+                                <input type="checkbox"
+                                       name="pilihan_hari[]"
+                                       value="<?= $h ?>">
+                                <?= $h ?>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">
+                        Pilihan Jam <span class="required">*</span>
+                    </label>
+
+                    <select name="pilihan_jam"
+                            class="form-select"
+                            required>
+                        <option value="">Pilih Jam Belajar</option>
+                        <option value="08:00">08.00</option>
+                        <option value="10:00">10.00</option>
+                        <option value="13:00">13.00</option>
+                        <option value="15:00">15.00</option>
+                        <option value="16:00">16.00</option>
+                    </select>
+                </div>
+
+            </div>
+
+            <div class="mt-4">
+                <button type="submit" class="btn-register">
+                    <i class="bi bi-person-plus me-2"></i>
+                    Daftar Sekarang
+                </button>
+            </div>
+
+            <div class="login-link">
+                Sudah memiliki akun?
+                <a href="<?= base_url('modules/auth/login.php') ?>">
+                    Masuk di sini
+                </a>
+            </div>
 
         </form>
-
-
-        <!-- LINK LOGIN -->
-
-        <div class="login-link">
-
-            Sudah memiliki akun?
-
-            <a href="login.php">
-                Login sekarang
-            </a>
-
-        </div>
-
-
-        <!-- FOOTER -->
-
-        <div class="form-footer">
-            Dengan mendaftar, Anda bergabung bersama
-            Smart Education Parepare.
-        </div>
-
-    </section>
-
+    </div>
 </div>
 
-
-<!-- =====================================
-     JAVASCRIPT LIHAT PASSWORD
-===================================== -->
-
 <script>
-
 function togglePassword(id, button) {
-
     const input = document.getElementById(id);
 
     if (input.type === 'password') {
-
         input.type = 'text';
-        button.textContent = 'Sembunyi';
-
+        button.textContent = 'Sembunyikan';
     } else {
-
         input.type = 'password';
         button.textContent = 'Lihat';
-
     }
-
 }
-
 </script>
 
 </body>

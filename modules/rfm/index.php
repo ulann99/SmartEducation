@@ -2,6 +2,7 @@
 ini_set('display_errors', '1');
 ini_set('display_startup_errors', '1');
 error_reporting(E_ALL);
+
 /**
  * ANALISIS RFM & SEGMENTASI SISWA
  * SMART EDUCATION PAREPARE
@@ -29,7 +30,6 @@ $segment_mapping = [
     'Recent Customers'     => 'Siswa Baru Aktif',
     'At Risk'              => 'Berisiko',
     'Hibernating'          => 'Tidak Aktif',
-
     'Pembayar Rutin'       => 'Pembayar Rutin',
     'Perlu Pengingat'      => 'Perlu Pengingat',
     'Berisiko'             => 'Berisiko',
@@ -48,35 +48,65 @@ $segment_colors = [
 ];
 
 /* =====================================================
-   MENGAMBIL DATA RFM DAN TAGIHAN BELUM LUNAS
+   MENGAMBIL DATA RFM DAN TAGIHAN
 ===================================================== */
 
 $sql = "
     SELECT
         r.*,
-        s.nama_siswa,
-        s.nis,
-        p.nama_paket,
-        COALESCE(pb.jumlah_belum_lunas, 0) AS jumlah_belum_lunas,
-        COALESCE(pb.total_belum_lunas, 0) AS total_belum_lunas
+        s.nama_lengkap AS nama_siswa,
+        paket.nama_paket,
+        COALESCE(tagihan.jumlah_belum_lunas, 0) AS jumlah_belum_lunas,
+        COALESCE(tagihan.total_belum_lunas, 0) AS total_belum_lunas
+
     FROM analisis_rfm r
-    JOIN siswa s ON r.id_siswa = s.id_siswa
-    LEFT JOIN paket_belajar p ON s.id_paket = p.id_paket
+
+    INNER JOIN siswa s
+        ON r.id_siswa = s.id_siswa
+
     LEFT JOIN (
         SELECT
-            id_siswa,
-            COUNT(*) AS jumlah_belum_lunas,
-            SUM(nominal) AS total_belum_lunas
-        FROM pembayaran
-        WHERE status_pembayaran = 'Belum Lunas'
-        GROUP BY id_siswa
-    ) pb ON pb.id_siswa = r.id_siswa
+            pd.id_siswa,
+            MAX(pd.id_pendaftaran) AS id_pendaftaran_terakhir
+        FROM pendaftaran pd
+        GROUP BY pd.id_siswa
+    ) pendaftaran_terakhir
+        ON pendaftaran_terakhir.id_siswa = s.id_siswa
+
+    LEFT JOIN pendaftaran pd
+        ON pd.id_pendaftaran = pendaftaran_terakhir.id_pendaftaran_terakhir
+
+    LEFT JOIN paket_belajar paket
+        ON paket.id_paket = pd.id_paket
+
+    LEFT JOIN (
+        SELECT
+            pd2.id_siswa,
+            COUNT(pb2.id_pembayaran) AS jumlah_belum_lunas,
+            SUM(pb2.jumlah_bayar) AS total_belum_lunas
+
+        FROM pendaftaran pd2
+
+        INNER JOIN pembayaran pb2
+            ON pb2.id_pendaftaran = pd2.id_pendaftaran
+
+        WHERE pb2.status_pembayaran = 'Menunggu'
+
+        GROUP BY pd2.id_siswa
+    ) tagihan
+        ON tagihan.id_siswa = r.id_siswa
+
     WHERE r.periode_analisis = :periode
-    ORDER BY r.total_rfm_score DESC, r.monetary_amount DESC
+
+    ORDER BY
+        r.total_rfm_score DESC,
+        r.monetary_amount DESC
 ";
 
 $stmt = $pdo->prepare($sql);
-$stmt->execute([':periode' => $periode]);
+$stmt->execute([
+    ':periode' => $periode
+]);
 
 $rfm_data = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -93,6 +123,7 @@ $sum_m = 0;
 $segment_counts = [];
 
 foreach ($rfm_data as $row) {
+
     $nama_segment = $segment_mapping[$row['segmentasi']]
         ?? $row['segmentasi'];
 
@@ -104,9 +135,14 @@ foreach ($rfm_data as $row) {
     $sum_m += (int) $row['m_score'];
 }
 
-$avg_r = $total_siswa > 0 ? round($sum_r / $total_siswa, 1) : 0;
-$avg_f = $total_siswa > 0 ? round($sum_f / $total_siswa, 1) : 0;
-$avg_m = $total_siswa > 0 ? round($sum_m / $total_siswa, 1) : 0;
+$avg_r = $total_siswa > 0
+    ? round($sum_r / $total_siswa, 1) : 0;
+
+$avg_f = $total_siswa > 0
+    ? round($sum_f / $total_siswa, 1) : 0;
+
+$avg_m = $total_siswa > 0
+    ? round($sum_m / $total_siswa, 1) : 0;
 
 $pembayar_unggulan =
     ($segment_counts['Pembayar Unggulan'] ?? 0) +
@@ -130,13 +166,20 @@ $tanggal_analisis = !empty($rfm_data)
 require_once BASEPATH . '/includes/header.php';
 require_once BASEPATH . '/includes/sidebar.php';
 require_once BASEPATH . '/includes/navbar.php';
+
+/* =====================================================
+   DATA PERIODE ANALISIS
+===================================================== */
+
+$daftar_periode = [
+    'Semua Waktu',
+    '3 Bulan Terakhir',
+    '6 Bulan Terakhir',
+    '1 Tahun Terakhir'
+];
 ?>
 
 <style>
-/* =====================================================
-   AREA HALAMAN
-===================================================== */
-
 .rfm-page {
     width: 100%;
     max-width: 100%;
@@ -173,10 +216,6 @@ require_once BASEPATH . '/includes/navbar.php';
     color: #718078;
     font-size: 13px;
 }
-
-/* =====================================================
-   TOMBOL
-===================================================== */
 
 .rfm-actions {
     display: flex;
@@ -234,10 +273,6 @@ require_once BASEPATH . '/includes/navbar.php';
     padding: 7px 13px;
     font-size: 12px;
 }
-
-/* =====================================================
-   KARTU UMUM
-===================================================== */
 
 .rfm-filter-card,
 .rfm-stat-card,
@@ -310,10 +345,6 @@ require_once BASEPATH . '/includes/navbar.php';
     padding: 18px;
 }
 
-/* =====================================================
-   FORM FILTER
-===================================================== */
-
 .rfm-filter-card label {
     display: block;
     margin-bottom: 7px;
@@ -333,10 +364,6 @@ require_once BASEPATH . '/includes/navbar.php';
     border-color: #287f73;
     box-shadow: 0 0 0 3px rgba(40, 127, 115, .1);
 }
-
-/* =====================================================
-   TABEL
-===================================================== */
 
 .rfm-table {
     width: 100%;
@@ -402,17 +429,6 @@ require_once BASEPATH . '/includes/navbar.php';
     text-align: center;
 }
 
-.rfm-score-badge {
-    display: inline-block;
-    margin-top: 5px;
-    padding: 4px 7px;
-    border-radius: 5px;
-    background: #f1f5f4;
-    color: #52645b;
-    font-size: 10px;
-    font-weight: 650;
-}
-
 .rfm-segment-badge {
     display: inline-flex;
     align-items: center;
@@ -445,26 +461,6 @@ require_once BASEPATH . '/includes/navbar.php';
     font-size: 12px;
 }
 
-/* =====================================================
-   GRAFIK
-===================================================== */
-
-.rfm-chart-wrap {
-    position: relative;
-    width: 100%;
-    height: 270px;
-}
-
-.rfm-chart-empty {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    color: #84938b;
-    font-size: 13px;
-    text-align: center;
-}
-
 .rfm-average-box {
     padding: 14px;
     margin-top: 15px;
@@ -484,27 +480,27 @@ require_once BASEPATH . '/includes/navbar.php';
     margin-bottom: 0;
 }
 
-/* =====================================================
-   MODAL
-===================================================== */
-
-#modalPanduanRFM .modal-content {
+#modalPanduanRFM .modal-content,
+#modalKonfirmasiPengingat .modal-content {
     overflow: hidden;
     border: 0;
     border-radius: 14px;
 }
 
-#modalPanduanRFM .modal-header {
+#modalPanduanRFM .modal-header,
+#modalKonfirmasiPengingat .modal-header {
     background: #e8fdff;
     border-bottom: 1px solid #e3efeb;
 }
 
-#modalPanduanRFM .modal-title {
+#modalPanduanRFM .modal-title,
+#modalKonfirmasiPengingat .modal-title {
     color: #173d32;
     font-weight: 700;
 }
 
-#modalPanduanRFM .modal-body {
+#modalPanduanRFM .modal-body,
+#modalKonfirmasiPengingat .modal-body {
     color: #34483f;
     font-size: 13px;
     line-height: 1.7;
@@ -513,6 +509,11 @@ require_once BASEPATH . '/includes/navbar.php';
 #modalPanduanRFM .list-group-item {
     padding: 13px 15px;
     border-color: #e8efec;
+}
+
+#modalKonfirmasiPengingat .modal-footer {
+    background: #fafcfb;
+    border-top: 1px solid #edf2ef;
 }
 
 @media (max-width: 768px) {
@@ -536,30 +537,10 @@ require_once BASEPATH . '/includes/navbar.php';
     .rfm-actions .rfm-btn {
         flex: 1;
     }
-
-    .rfm-chart-wrap {
-        height: 240px;
-    }
 }
 </style>
+
 <?php
-/* =====================================================
-   DATA PERIODE ANALISIS
-===================================================== */
-
-$stmt_periode = $pdo->query("
-    SELECT periode_analisis
-    FROM analisis_rfm
-    GROUP BY periode_analisis
-    ORDER BY MAX(tanggal_analisis) DESC
-");
-
-$daftar_periode = $stmt_periode->fetchAll(PDO::FETCH_COLUMN);
-
-/* =====================================================
-   WARNA DAN DATA GRAFIK
-===================================================== */
-
 $chart_labels = array_keys($segment_counts);
 $chart_values = array_values($segment_counts);
 ?>
@@ -572,7 +553,7 @@ $chart_values = array_values($segment_counts);
         <div>
             <h1>
                 <i class="bi bi-bar-chart-line me-2"></i>
-                
+                Analisis RFM &amp; Segmentasi Siswa
             </h1>
 
             <p>
@@ -610,15 +591,13 @@ $chart_values = array_values($segment_counts);
     <div class="rfm-filter-card">
 
         <form method="GET"
-              action="<?= base_url('modules/rfm/index.php') ?>">
+              action="<?= base_url('modules/rfm/hitung.php') ?>">
 
             <div class="row align-items-end g-3">
 
                 <div class="col-md-5">
 
-                    <label for="periode">
-                        Periode Analisis
-                    </label>
+                    <label for="periode">Periode Analisis</label>
 
                     <select name="periode"
                             id="periode"
@@ -670,7 +649,6 @@ $chart_values = array_values($segment_counts);
     <div class="row g-3 mb-4">
 
         <div class="col-xl-3 col-md-6">
-
             <div class="rfm-stat-card">
 
                 <div class="d-flex justify-content-between align-items-center">
@@ -696,11 +674,9 @@ $chart_values = array_values($segment_counts);
                 </div>
 
             </div>
-
         </div>
 
         <div class="col-xl-3 col-md-6">
-
             <div class="rfm-stat-card">
 
                 <div class="d-flex justify-content-between align-items-center">
@@ -726,11 +702,9 @@ $chart_values = array_values($segment_counts);
                 </div>
 
             </div>
-
         </div>
 
         <div class="col-xl-3 col-md-6">
-
             <div class="rfm-stat-card">
 
                 <div class="d-flex justify-content-between align-items-center">
@@ -756,11 +730,9 @@ $chart_values = array_values($segment_counts);
                 </div>
 
             </div>
-
         </div>
 
         <div class="col-xl-3 col-md-6">
-
             <div class="rfm-stat-card">
 
                 <div class="d-flex justify-content-between align-items-center">
@@ -786,25 +758,21 @@ $chart_values = array_values($segment_counts);
                 </div>
 
             </div>
-
         </div>
 
     </div>
 
-    <!-- GRAFIK DAN RATA-RATA RFM -->
+    <!-- GRAFIK SEGMENTASI -->
     <div class="row g-3 mb-4">
 
         <div class="col-lg-7">
-
             <div class="rfm-card">
 
                 <div class="rfm-card-header">
-
                     <h5>
                         <i class="bi bi-pie-chart me-2"></i>
                         Distribusi Segmentasi Siswa
                     </h5>
-
                 </div>
 
                 <div class="rfm-card-body">
@@ -815,7 +783,6 @@ $chart_values = array_values($segment_counts);
 
                             <?php
                             $warna_segment = $segment_colors[$nama_segment] ?? '#8b9299';
-
                             $persentase = ($jumlah_segment / $total_siswa) * 100;
                             ?>
 
@@ -840,7 +807,6 @@ $chart_values = array_values($segment_counts);
                                     <div class="progress-bar"
                                          role="progressbar"
                                          style="width: <?= $persentase ?>%; background-color: <?= htmlspecialchars($warna_segment) ?>; border-radius: 20px;">
-
                                     </div>
 
                                 </div>
@@ -851,29 +817,25 @@ $chart_values = array_values($segment_counts);
 
                     <?php else: ?>
 
-                        <div class="rfm-chart-empty">
+                        <div class="text-center text-muted py-5">
                             Belum terdapat data segmentasi siswa.
                         </div>
 
                     <?php endif; ?>
 
                 </div>
-
             </div>
-
         </div>
 
+        <!-- RATA-RATA RFM -->
         <div class="col-lg-5">
-
             <div class="rfm-card">
 
                 <div class="rfm-card-header">
-
                     <h5>
                         <i class="bi bi-graph-up me-2"></i>
                         Rata-rata Skor RFM
                     </h5>
-
                 </div>
 
                 <div class="rfm-card-body">
@@ -881,13 +843,8 @@ $chart_values = array_values($segment_counts);
                     <div class="rfm-average-box">
 
                         <div class="rfm-average-row">
-
-                            <span>
-                                <strong>Recency (R)</strong>
-                            </span>
-
+                            <strong>Recency (R)</strong>
                             <strong><?= number_format($avg_r, 1) ?></strong>
-
                         </div>
 
                         <div class="progress mb-3" style="height: 9px;">
@@ -897,13 +854,8 @@ $chart_values = array_values($segment_counts);
                         </div>
 
                         <div class="rfm-average-row">
-
-                            <span>
-                                <strong>Frequency (F)</strong>
-                            </span>
-
+                            <strong>Frequency (F)</strong>
                             <strong><?= number_format($avg_f, 1) ?></strong>
-
                         </div>
 
                         <div class="progress mb-3" style="height: 9px;">
@@ -913,13 +865,8 @@ $chart_values = array_values($segment_counts);
                         </div>
 
                         <div class="rfm-average-row">
-
-                            <span>
-                                <strong>Monetary (M)</strong>
-                            </span>
-
+                            <strong>Monetary (M)</strong>
                             <strong><?= number_format($avg_m, 1) ?></strong>
-
                         </div>
 
                         <div class="progress" style="height: 9px;">
@@ -935,14 +882,12 @@ $chart_values = array_values($segment_counts);
                     </small>
 
                 </div>
-
             </div>
-
         </div>
 
     </div>
 
-    <!-- TABEL HASIL ANALISIS RFM -->
+    <!-- TABEL HASIL ANALISIS -->
     <div class="rfm-card">
 
         <div class="rfm-card-header">
@@ -971,7 +916,6 @@ $chart_values = array_values($segment_counts);
                 <table class="table rfm-table align-middle">
 
                     <thead>
-
                         <tr>
                             <th>No.</th>
                             <th>Nama Siswa</th>
@@ -983,7 +927,6 @@ $chart_values = array_values($segment_counts);
                             <th>Segmentasi</th>
                             <th>Aksi</th>
                         </tr>
-
                     </thead>
 
                     <tbody>
@@ -1033,7 +976,7 @@ $chart_values = array_values($segment_counts);
                                     </div>
 
                                     <div class="student-nis">
-                                        NIS: <?= htmlspecialchars($row['nis']) ?>
+                                        ID Siswa: #<?= (int) $row['id_siswa'] ?>
                                     </div>
                                 </td>
 
@@ -1042,7 +985,6 @@ $chart_values = array_values($segment_counts);
                                 </td>
 
                                 <td class="text-center">
-
                                     <span class="rfm-score">
                                         <?= (int) $row['r_score'] ?>
                                     </span>
@@ -1050,11 +992,9 @@ $chart_values = array_values($segment_counts);
                                     <div class="rfm-score-detail">
                                         <?= (int) $row['recency_days'] ?> hari
                                     </div>
-
                                 </td>
 
                                 <td class="text-center">
-
                                     <span class="rfm-score">
                                         <?= (int) $row['f_score'] ?>
                                     </span>
@@ -1062,11 +1002,9 @@ $chart_values = array_values($segment_counts);
                                     <div class="rfm-score-detail">
                                         <?= (int) $row['frequency_count'] ?> transaksi
                                     </div>
-
                                 </td>
 
                                 <td class="text-center">
-
                                     <span class="rfm-score">
                                         <?= (int) $row['m_score'] ?>
                                     </span>
@@ -1074,33 +1012,26 @@ $chart_values = array_values($segment_counts);
                                     <div class="rfm-score-detail">
                                         <?= format_rupiah($row['monetary_amount']) ?>
                                     </div>
-
                                 </td>
 
                                 <td class="text-center">
-
                                     <span class="rfm-score">
                                         <?= (int) $row['total_rfm_score'] ?>
                                     </span>
-
                                 </td>
 
                                 <td>
-
                                     <span class="rfm-segment-badge"
                                           style="background: <?= htmlspecialchars($warna_segment) ?>20; color: <?= htmlspecialchars($warna_segment) ?>;">
 
                                         <?= htmlspecialchars($nama_segment) ?>
 
                                     </span>
-
                                 </td>
 
                                 <td>
-
                                     <div class="d-flex flex-column align-items-center gap-2">
 
-                                        <!-- DETAIL PEMBAYARAN -->
                                         <a href="<?= base_url(
                                             'modules/pembayaran/index.php?tab=riwayat&search='
                                             . urlencode($row['nama_siswa'])
@@ -1114,30 +1045,23 @@ $chart_values = array_values($segment_counts);
 
                                         </a>
 
-                                        <!-- KIRIM PENGINGAT -->
                                         <?php if ($jumlah_belum_lunas > 0): ?>
 
-                                            <form action="<?= base_url('modules/rfm/kirimpengingat.php') ?>"
-                                                  method="POST"
-                                                  onsubmit="return confirm('Kirim pengingat tagihan kepada <?= htmlspecialchars(addslashes($row['nama_siswa'])) ?>?')">
+                                            <!-- TOMBOL MEMBUKA MODAL PENGINGAT -->
+                                            <button type="button"
+                                                    class="rfm-btn rfm-btn-primary rfm-btn-small"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#modalKonfirmasiPengingat"
+                                                    data-id-siswa="<?= (int) $row['id_siswa'] ?>"
+                                                    data-nama-siswa="<?= htmlspecialchars($row['nama_siswa'], ENT_QUOTES, 'UTF-8') ?>"
+                                                    data-jumlah-tagihan="<?= $jumlah_belum_lunas ?>"
+                                                    data-total-tagihan="<?= htmlspecialchars(format_rupiah($total_belum_lunas), ENT_QUOTES, 'UTF-8') ?>"
+                                                    data-periode="<?= htmlspecialchars($periode, ENT_QUOTES, 'UTF-8') ?>">
 
-                                                <input type="hidden"
-                                                       name="id_siswa"
-                                                       value="<?= (int) $row['id_siswa'] ?>">
+                                                <i class="bi bi-bell"></i>
+                                                Kirim Pengingat
 
-                                                <input type="hidden"
-                                                       name="periode"
-                                                       value="<?= htmlspecialchars($periode) ?>">
-
-                                                <button type="submit"
-                                                        class="rfm-btn rfm-btn-primary rfm-btn-small">
-
-                                                    <i class="bi bi-bell"></i>
-                                                    Kirim Pengingat
-
-                                                </button>
-
-                                            </form>
+                                            </button>
 
                                             <small class="text-warning">
                                                 <?= $jumlah_belum_lunas ?> tagihan ·
@@ -1147,7 +1071,6 @@ $chart_values = array_values($segment_counts);
                                         <?php endif; ?>
 
                                     </div>
-
                                 </td>
 
                             </tr>
@@ -1163,12 +1086,15 @@ $chart_values = array_values($segment_counts);
             </div>
 
         </div>
-
     </div>
 
 </div>
 
-<!-- MODAL PANDUAN RFM -->
+
+<!-- =========================================
+     MODAL PANDUAN RFM
+========================================= -->
+
 <div class="modal fade"
      id="modalPanduanRFM"
      tabindex="-1"
@@ -1251,5 +1177,224 @@ $chart_values = array_values($segment_counts);
     </div>
 
 </div>
+
+
+<!-- =========================================
+     MODAL KONFIRMASI PENGINGAT PEMBAYARAN
+========================================= -->
+
+<div class="modal fade"
+     id="modalKonfirmasiPengingat"
+     tabindex="-1"
+     aria-labelledby="judulModalPengingat"
+     aria-hidden="true">
+
+    <div class="modal-dialog modal-dialog-centered">
+
+        <div class="modal-content"
+             style="border: none; border-radius: 16px; overflow: hidden;">
+
+            <!-- HEADER MODAL -->
+
+            <div class="modal-header"
+                 style="background: #e8fdff; border-bottom: 1px solid #dcefeb;">
+
+                <h5 class="modal-title fw-bold"
+                    id="judulModalPengingat"
+                    style="color: #173d32;">
+
+                    <i class="bi bi-bell me-2"
+                       style="color: #287f73;"></i>
+
+                    Konfirmasi Pengingat Pembayaran
+
+                </h5>
+
+                <button type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                        aria-label="Tutup">
+                </button>
+
+            </div>
+
+            <!-- BODY MODAL -->
+
+            <div class="modal-body p-4">
+
+                <div class="text-center mb-3">
+
+                    <div class="mx-auto mb-3 d-flex align-items-center justify-content-center"
+                         style="width: 65px; height: 65px; background: #e8fdff; border-radius: 50%;">
+
+                        <i class="bi bi-bell-fill"
+                           style="font-size: 27px; color: #287f73;">
+                        </i>
+
+                    </div>
+
+                    <h5 class="fw-bold mb-2"
+                        style="color: #173d32;">
+
+                        Kirim Pengingat Tagihan?
+
+                    </h5>
+
+                    <p class="text-muted mb-0"
+                       style="font-size: 13px;">
+
+                        Apakah kamu yakin ingin mengirim pengingat pembayaran kepada:
+
+                    </p>
+
+                    <h6 class="fw-bold mt-2 mb-0"
+                        id="namaSiswaPengingat"
+                        style="color: #287f73;">
+
+                        Nama Siswa
+
+                    </h6>
+
+                </div>
+
+                <!-- INFORMASI TAGIHAN -->
+
+                <div class="p-3"
+                     style="background: #f3faf7; border: 1px solid #e2efea; border-radius: 10px;">
+
+                    <div class="d-flex justify-content-between mb-2">
+
+                        <span class="text-muted small">
+                            Jumlah Tagihan
+                        </span>
+
+                        <strong id="jumlahTagihanPengingat">
+                            0 tagihan
+                        </strong>
+
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+
+                        <span class="text-muted small">
+                            Total Tagihan
+                        </span>
+
+                        <strong id="totalTagihanPengingat"
+                                style="color: #287f73;">
+
+                            Rp0
+
+                        </strong>
+
+                    </div>
+
+                </div>
+
+                <div class="mt-3 text-muted"
+                     style="font-size: 11px;">
+
+                    <i class="bi bi-info-circle me-1"></i>
+
+                    Pengingat akan disimpan sebagai notifikasi internal
+                    pada akun Siswa/Orang Tua.
+
+                </div>
+
+            </div>
+
+            <!-- FOOTER MODAL -->
+
+            <div class="modal-footer"
+                 style="background: #fafcfb; border-top: 1px solid #edf2ef;">
+
+                <button type="button"
+                        class="btn btn-light border"
+                        data-bs-dismiss="modal">
+
+                    Batal
+
+                </button>
+
+                <form action="<?= base_url('modules/rfm/kirimpengingat.php') ?>"
+                      method="POST"
+                      id="formKonfirmasiPengingat">
+
+                    <input type="hidden"
+                           name="id_siswa"
+                           id="idSiswaPengingat">
+
+                    <input type="hidden"
+                           name="periode"
+                           id="periodePengingat">
+
+                    <button type="submit"
+                            class="rfm-btn rfm-btn-primary">
+
+                        <i class="bi bi-bell me-1"></i>
+
+                        Ya, Kirim Pengingat
+
+                    </button>
+
+                </form>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- =========================================
+     JAVASCRIPT MODAL PENGINGAT
+========================================= -->
+
+<script>
+
+document.addEventListener('DOMContentLoaded', function () {
+
+    const modalPengingat = document.getElementById(
+        'modalKonfirmasiPengingat'
+    );
+
+    if (!modalPengingat) {
+        return;
+    }
+
+    modalPengingat.addEventListener('show.bs.modal', function (event) {
+
+        const tombol = event.relatedTarget;
+
+        if (!tombol) {
+            return;
+        }
+
+        const idSiswa = tombol.getAttribute('data-id-siswa');
+        const namaSiswa = tombol.getAttribute('data-nama-siswa');
+        const jumlahTagihan = tombol.getAttribute('data-jumlah-tagihan');
+        const totalTagihan = tombol.getAttribute('data-total-tagihan');
+        const periode = tombol.getAttribute('data-periode');
+
+        document.getElementById('idSiswaPengingat').value = idSiswa;
+
+        document.getElementById('periodePengingat').value = periode;
+
+        document.getElementById('namaSiswaPengingat').textContent =
+            namaSiswa;
+
+        document.getElementById('jumlahTagihanPengingat').textContent =
+            jumlahTagihan + ' tagihan';
+
+        document.getElementById('totalTagihanPengingat').textContent =
+            totalTagihan;
+
+    });
+
+});
+
+</script>
 
 <?php require_once BASEPATH . '/includes/footer.php'; ?>

@@ -14,16 +14,19 @@ if (!defined('BASEPATH')) {
 require_once $root . '/config/helper.php';
 require_login();
 
+// Hak akses
 if (!in_array($_SESSION['role'] ?? '', ['superadmin', 'admin'], true)) {
     header('Location: ' . base_url('dashboard.php'));
     exit;
 }
 
+// Hanya menerima POST
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header('Location: ' . base_url('modules/paket/index.php'));
     exit;
 }
 
+// Validasi CSRF
 if (
     !isset($_POST['csrf_token'], $_SESSION['csrf_token']) ||
     !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])
@@ -33,6 +36,7 @@ if (
     exit;
 }
 
+// Validasi ID
 $id = filter_var($_POST['id_paket'] ?? null, FILTER_VALIDATE_INT);
 
 if (!$id) {
@@ -42,44 +46,63 @@ if (!$id) {
 }
 
 try {
+    // Periksa paket
     $stmt = $pdo->prepare("
         SELECT id_paket, nama_paket
         FROM paket_belajar
         WHERE id_paket = ?
     ");
+
     $stmt->execute([$id]);
     $paket = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$paket) {
         set_flash('danger', 'Paket belajar tidak ditemukan.');
+        header('Location: ' . base_url('modules/paket/index.php'));
+        exit;
+    }
+
+    // Periksa apakah paket masih digunakan pendaftaran
+    $cek = $pdo->prepare("
+        SELECT COUNT(*)
+        FROM pendaftaran
+        WHERE id_paket = ?
+    ");
+
+    $cek->execute([$id]);
+    $jumlahPendaftaran = (int) $cek->fetchColumn();
+
+    if ($jumlahPendaftaran > 0) {
+
+        set_flash(
+            'danger',
+            'Paket tidak dapat dihapus karena sudah digunakan oleh ' .
+            $jumlahPendaftaran .
+            ' data pendaftaran. Ubah status paket menjadi Nonaktif jika tidak ingin digunakan lagi.'
+        );
+
     } else {
-        // Jangan hapus paket yang masih digunakan oleh data siswa
-        $cekSiswa = $pdo->prepare("
-            SELECT COUNT(*)
-            FROM siswa
+
+        // Hapus jika belum memiliki relasi pendaftaran
+        $hapus = $pdo->prepare("
+            DELETE FROM paket_belajar
             WHERE id_paket = ?
         ");
-        $cekSiswa->execute([$id]);
-        $jumlahSiswa = (int)$cekSiswa->fetchColumn();
 
-        if ($jumlahSiswa > 0) {
-            set_flash(
-                'danger',
-                'Paket tidak dapat dihapus karena masih digunakan oleh ' .
-                $jumlahSiswa . ' siswa. Ubah statusnya menjadi Non-Aktif.'
-            );
-        } else {
-            $hapus = $pdo->prepare("
-                DELETE FROM paket_belajar
-                WHERE id_paket = ?
-            ");
-            $hapus->execute([$id]);
+        $hapus->execute([$id]);
 
-            set_flash('success', 'Paket ' . $paket['nama_paket'] . ' berhasil dihapus.');
-        }
+        set_flash(
+            'success',
+            'Paket ' . $paket['nama_paket'] . ' berhasil dihapus.'
+        );
     }
+
 } catch (PDOException $e) {
-    set_flash('danger', 'Paket belajar gagal dihapus karena masih memiliki data terkait.');
+
+    set_flash(
+        'danger',
+        'Paket gagal dihapus karena masih memiliki data terkait.'
+    );
 }
 
 header('Location: ' . base_url('modules/paket/index.php'));

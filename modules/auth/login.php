@@ -46,6 +46,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 // =====================================
                 // SIMPAN DATA SESSION
                 // =====================================
+
                 $_SESSION["login"] = true;
                 $_SESSION["user_id"] = $user["id"];
                 $_SESSION["username"] = $user["username"];
@@ -656,7 +657,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         <?php endif; ?>
 
         <!-- FORM LOGIN -->
-        <form method="POST" action="">
+        <form method="POST" action="" autocomplete="off">
 
             <!-- USERNAME -->
             <div class="form-group">
@@ -669,8 +670,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         type="text"
                         name="username"
                         placeholder="Username"
-                        autocomplete="username"
-                        required
+                        autocomplete="off"
                         autofocus
                         value="<?= htmlspecialchars($_POST["username"] ?? "", ENT_QUOTES, 'UTF-8'); ?>"
                     >
@@ -691,8 +691,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         name="password"
                         id="password"
                         placeholder="Password"
-                        autocomplete="current-password"
-                        required
+                        autocomplete="new-password"
                     >
 
                     <button

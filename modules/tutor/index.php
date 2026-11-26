@@ -18,7 +18,6 @@ $current_page = 'tutor';
 $page_title = 'Pengelolaan Data Tutor';
 
 $user = current_user();
-$is_admin = in_array($_SESSION['role'] ?? '', ['superadmin', 'admin'], true);
 
 // Token keamanan
 if (empty($_SESSION['csrf_token'])) {
@@ -648,7 +647,6 @@ require_once $root . '/includes/navbar.php';
                 name="keyword"
                 class="form-control"
                 style="max-width:300px;"
-                placeholder="Cari NIP, nama, keahlian..."
                 value="<?= htmlspecialchars($keyword); ?>"
             >
 
@@ -769,31 +767,15 @@ require_once $root . '/includes/navbar.php';
                                     <i class="bi bi-pencil-square"></i>
                                 </button>
 
-                                <form
-                                    action="<?= base_url('modules/tutor/delete.php'); ?>"
-                                    method="POST"
-                                    onsubmit="return confirm('Yakin ingin menghapus tutor <?= htmlspecialchars($t['nama_tutor'], ENT_QUOTES, 'UTF-8'); ?>?');"
+                                <button
+                                    type="button"
+                                    class="btn-tutor-icon btn-tutor-delete"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#modalHapusTutor<?= (int)$t['id_tutor']; ?>"
+                                    title="Hapus Tutor"
                                 >
-                                    <input type="hidden" name="id_tutor"
-                                           value="<?= (int)$t['id_tutor']; ?>">
-
-                                    <input type="hidden" name="csrf_token"
-                                           value="<?= htmlspecialchars($_SESSION['csrf_token']); ?>">
-
-                                    <input type="hidden" name="keyword"
-                                           value="<?= htmlspecialchars($keyword); ?>">
-
-                                    <input type="hidden" name="status"
-                                           value="<?= htmlspecialchars($status_filter); ?>">
-
-                                    <button
-                                        type="submit"
-                                        class="btn-tutor-icon btn-tutor-delete"
-                                        title="Hapus Tutor"
-                                    >
-                                        <i class="bi bi-trash"></i>
-                                    </button>
-                                </form>
+                                    <i class="bi bi-trash"></i>
+                                </button>
 
                             </div>
                         </td>
@@ -821,8 +803,11 @@ require_once $root . '/includes/navbar.php';
 
             <form action="<?= base_url('modules/tutor/create.php'); ?>" method="POST">
 
-                <input type="hidden" name="csrf_token"
-                       value="<?= htmlspecialchars($_SESSION['csrf_token']); ?>">
+                <input
+                    type="hidden"
+                    name="csrf_token"
+                    value="<?= htmlspecialchars($_SESSION['csrf_token']); ?>"
+                >
 
                 <div class="modal-header">
                     <h5 class="modal-title">
@@ -830,8 +815,11 @@ require_once $root . '/includes/navbar.php';
                         Tambah Tutor Baru
                     </h5>
 
-                    <button type="button" class="btn-close"
-                            data-bs-dismiss="modal"></button>
+                    <button
+                        type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                    ></button>
                 </div>
 
                 <div class="modal-body">
@@ -842,40 +830,49 @@ require_once $root . '/includes/navbar.php';
                             <label class="form-label">
                                 NIP / Kode Tutor <span class="text-danger">*</span>
                             </label>
-                            <input type="text" name="nip"
-                                   class="form-control"
-                                   placeholder="Contoh: TUTOR006"
-                                   maxlength="20" required>
+                            <input
+                                type="text"
+                                name="nip"
+                                class="form-control"
+                                maxlength="20"
+                                required
+                            >
                         </div>
 
                         <div class="col-md-6">
                             <label class="form-label">
                                 Nama Lengkap <span class="text-danger">*</span>
                             </label>
-                            <input type="text" name="nama_tutor"
-                                   class="form-control"
-                                   maxlength="100"
-                                   placeholder="Nama lengkap tutor"
-                                   required>
+                            <input
+                                type="text"
+                                name="nama_tutor"
+                                class="form-control"
+                                maxlength="100"
+                                required
+                            >
                         </div>
 
                         <div class="col-12">
                             <label class="form-label">
                                 Bidang Keahlian <span class="text-danger">*</span>
                             </label>
-                            <input type="text" name="keahlian"
-                                   class="form-control"
-                                   maxlength="100"
-                                   placeholder="Contoh: Matematika dan Fisika"
-                                   required>
+                            <input
+                                type="text"
+                                name="keahlian"
+                                class="form-control"
+                                maxlength="100"
+                                required
+                            >
                         </div>
 
                         <div class="col-md-6">
                             <label class="form-label">No. Telepon</label>
-                            <input type="text" name="no_telepon"
-                                   class="form-control"
-                                   maxlength="20"
-                                   placeholder="08xxxxxxxxxx">
+                            <input
+                                type="text"
+                                name="no_telepon"
+                                class="form-control"
+                                maxlength="20"
+                            >
                         </div>
 
                         <div class="col-md-6">
@@ -889,18 +886,23 @@ require_once $root . '/includes/navbar.php';
 
                         <div class="col-12">
                             <label class="form-label">Email</label>
-                            <input type="email" name="email"
-                                   class="form-control"
-                                   maxlength="100"
-                                   placeholder="tutor@email.com">
+                            <input
+                                type="email"
+                                name="email"
+                                class="form-control"
+                                maxlength="100"
+                            >
                         </div>
 
                     </div>
                 </div>
 
                 <div class="modal-footer">
-                    <button type="button" class="btn-tutor-cancel"
-                            data-bs-dismiss="modal">
+                    <button
+                        type="button"
+                        class="btn-tutor-cancel"
+                        data-bs-dismiss="modal"
+                    >
                         Batal
                     </button>
 
@@ -929,11 +931,17 @@ require_once $root . '/includes/navbar.php';
 
             <form action="<?= base_url('modules/tutor/edit.php'); ?>" method="POST">
 
-                <input type="hidden" name="csrf_token"
-                       value="<?= htmlspecialchars($_SESSION['csrf_token']); ?>">
+                <input
+                    type="hidden"
+                    name="csrf_token"
+                    value="<?= htmlspecialchars($_SESSION['csrf_token']); ?>"
+                >
 
-                <input type="hidden" name="id_tutor"
-                       value="<?= (int)$t['id_tutor']; ?>">
+                <input
+                    type="hidden"
+                    name="id_tutor"
+                    value="<?= (int)$t['id_tutor']; ?>"
+                >
 
                 <div class="modal-header">
                     <h5 class="modal-title">
@@ -941,8 +949,11 @@ require_once $root . '/includes/navbar.php';
                         Edit Data Tutor
                     </h5>
 
-                    <button type="button" class="btn-close"
-                            data-bs-dismiss="modal"></button>
+                    <button
+                        type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                    ></button>
                 </div>
 
                 <div class="modal-body">
@@ -951,37 +962,49 @@ require_once $root . '/includes/navbar.php';
 
                         <div class="col-md-6">
                             <label class="form-label">NIP / Kode Tutor *</label>
-                            <input type="text" name="nip"
-                                   class="form-control"
-                                   maxlength="20"
-                                   value="<?= htmlspecialchars($t['nip']); ?>"
-                                   required>
+                            <input
+                                type="text"
+                                name="nip"
+                                class="form-control"
+                                maxlength="20"
+                                value="<?= htmlspecialchars($t['nip']); ?>"
+                                required
+                            >
                         </div>
 
                         <div class="col-md-6">
                             <label class="form-label">Nama Lengkap *</label>
-                            <input type="text" name="nama_tutor"
-                                   class="form-control"
-                                   maxlength="100"
-                                   value="<?= htmlspecialchars($t['nama_tutor']); ?>"
-                                   required>
+                            <input
+                                type="text"
+                                name="nama_tutor"
+                                class="form-control"
+                                maxlength="100"
+                                value="<?= htmlspecialchars($t['nama_tutor']); ?>"
+                                required
+                            >
                         </div>
 
                         <div class="col-12">
                             <label class="form-label">Bidang Keahlian *</label>
-                            <input type="text" name="keahlian"
-                                   class="form-control"
-                                   maxlength="100"
-                                   value="<?= htmlspecialchars($t['keahlian']); ?>"
-                                   required>
+                            <input
+                                type="text"
+                                name="keahlian"
+                                class="form-control"
+                                maxlength="100"
+                                value="<?= htmlspecialchars($t['keahlian']); ?>"
+                                required
+                            >
                         </div>
 
                         <div class="col-md-6">
                             <label class="form-label">No. Telepon</label>
-                            <input type="text" name="no_telepon"
-                                   class="form-control"
-                                   maxlength="20"
-                                   value="<?= htmlspecialchars($t['no_telepon'] ?? ''); ?>">
+                            <input
+                                type="text"
+                                name="no_telepon"
+                                class="form-control"
+                                maxlength="20"
+                                value="<?= htmlspecialchars($t['no_telepon'] ?? ''); ?>"
+                            >
                         </div>
 
                         <div class="col-md-6">
@@ -1004,24 +1027,109 @@ require_once $root . '/includes/navbar.php';
 
                         <div class="col-12">
                             <label class="form-label">Email</label>
-                            <input type="email" name="email"
-                                   class="form-control"
-                                   maxlength="100"
-                                   value="<?= htmlspecialchars($t['email'] ?? ''); ?>">
+                            <input
+                                type="email"
+                                name="email"
+                                class="form-control"
+                                maxlength="100"
+                                value="<?= htmlspecialchars($t['email'] ?? ''); ?>"
+                            >
                         </div>
 
                     </div>
                 </div>
 
                 <div class="modal-footer">
-                    <button type="button" class="btn-tutor-cancel"
-                            data-bs-dismiss="modal">
+                    <button
+                        type="button"
+                        class="btn-tutor-cancel"
+                        data-bs-dismiss="modal"
+                    >
                         Batal
                     </button>
 
                     <button type="submit" class="btn-tutor-save">
                         <i class="bi bi-save"></i>
                         Simpan Perubahan
+                    </button>
+                </div>
+
+            </form>
+        </div>
+    </div>
+</div>
+
+<?php endforeach; ?>
+
+<!-- MODAL KONFIRMASI HAPUS -->
+<?php foreach ($tutor_list as $t): ?>
+
+<div
+    class="modal fade tutor-modal"
+    id="modalHapusTutor<?= (int)$t['id_tutor']; ?>"
+    tabindex="-1"
+    aria-hidden="true"
+>
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+
+            <form action="<?= base_url('modules/tutor/delete.php'); ?>" method="POST">
+
+                <input
+                    type="hidden"
+                    name="csrf_token"
+                    value="<?= htmlspecialchars($_SESSION['csrf_token']); ?>"
+                >
+
+                <input
+                    type="hidden"
+                    name="id_tutor"
+                    value="<?= (int)$t['id_tutor']; ?>"
+                >
+
+                <input type="hidden" name="keyword"
+                       value="<?= htmlspecialchars($keyword); ?>">
+
+                <input type="hidden" name="status"
+                       value="<?= htmlspecialchars($status_filter); ?>">
+
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-trash text-danger"></i>
+                        Konfirmasi Hapus Tutor
+                    </h5>
+
+                    <button
+                        type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                    ></button>
+                </div>
+
+                <div class="modal-body">
+                    <p class="mb-2">Apakah Anda yakin ingin menghapus data tutor ini?</p>
+                    <strong><?= htmlspecialchars($t['nama_tutor']); ?></strong>
+                    <p class="text-muted small mt-2 mb-0">
+                        Data tutor akan dihapus dari sistem jika tidak sedang digunakan oleh kelas.
+                    </p>
+                </div>
+
+                <div class="modal-footer">
+                    <button
+                        type="button"
+                        class="btn-tutor-cancel"
+                        data-bs-dismiss="modal"
+                    >
+                        Batal
+                    </button>
+
+                    <button
+                        type="submit"
+                        class="btn btn-danger"
+                        style="border-radius:9px; padding:10px 17px; font-size:12px; font-weight:600;"
+                    >
+                        <i class="bi bi-trash me-1"></i>
+                        Ya, Hapus
                     </button>
                 </div>
 

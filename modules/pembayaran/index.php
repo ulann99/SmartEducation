@@ -1,3 +1,4 @@
+
 <?php
 /**
  * Pengelolaan Pembayaran dan Riwayat Pembayaran
@@ -21,134 +22,160 @@ $status_filter = trim($_GET['status'] ?? '');
 $tanggal_mulai = trim($_GET['tanggal_mulai'] ?? '');
 $tanggal_akhir = trim($_GET['tanggal_akhir'] ?? '');
 
+$status_valid = ['Menunggu', 'Berhasil', 'Ditolak'];
+if ($status_filter !== '' && !in_array($status_filter, $status_valid, true)) {
+    $status_filter = '';
+}
+
+/* FILTER DATA */
 $where = " WHERE 1=1 ";
 $params = [];
 
 if ($search !== '') {
     $where .= " AND (
-        s.nama_siswa LIKE :search_nama
-        OR s.nis LIKE :search_nis
-        OR p.kode_transaksi LIKE :search_kode
-    )";
+        s.nama_lengkap LIKE :search_nama
+        OR pd.nomor_registrasi LIKE :search_registrasi
+        OR pk.nama_paket LIKE :search_paket
+    ) ";
 
     $params[':search_nama'] = "%{$search}%";
-    $params[':search_nis'] = "%{$search}%";
-    $params[':search_kode'] = "%{$search}%";
+    $params[':search_registrasi'] = "%{$search}%";
+    $params[':search_paket'] = "%{$search}%";
 }
 
 if ($status_filter !== '') {
-    $where .= " AND p.status_pembayaran = :status";
+    $where .= " AND p.status_pembayaran = :status ";
     $params[':status'] = $status_filter;
 }
 
 if ($tanggal_mulai !== '') {
-    $where .= " AND p.tanggal_bayar >= :tanggal_mulai";
+    $where .= " AND p.tanggal_bayar >= :tanggal_mulai ";
     $params[':tanggal_mulai'] = $tanggal_mulai;
 }
 
 if ($tanggal_akhir !== '') {
-    $where .= " AND p.tanggal_bayar <= :tanggal_akhir";
+    $where .= " AND p.tanggal_bayar <= :tanggal_akhir ";
     $params[':tanggal_akhir'] = $tanggal_akhir;
 }
 
+/* QUERY UTAMA */
 $base_sql = "
-    SELECT p.*, s.nama_siswa, s.nis, s.no_telepon,
-           pk.nama_paket,
-           u.nama_lengkap AS verifikator_nama
+    SELECT
+        p.*,
+        pd.nomor_registrasi,
+        pd.id_siswa,
+        pd.id_paket,
+        s.nama_lengkap,
+        s.no_hp,
+        pk.nama_paket
     FROM pembayaran p
-    JOIN siswa s ON p.id_siswa = s.id_siswa
-    JOIN paket_belajar pk ON p.id_paket = pk.id_paket
-    LEFT JOIN users u ON p.diverifikasi_oleh = u.id
+    INNER JOIN pendaftaran pd
+        ON p.id_pendaftaran = pd.id_pendaftaran
+    INNER JOIN siswa s
+        ON pd.id_siswa = s.id_siswa
+    INNER JOIN paket_belajar pk
+        ON pd.id_paket = pk.id_paket
 ";
 
-/* Data kelola pembayaran */
+/* Kelola pembayaran yang masih menunggu */
 $sql_kelola = $base_sql . $where . "
-    AND p.status_pembayaran IN ('Menunggu Konfirmasi', 'Belum Lunas')
+    AND p.status_pembayaran = 'Menunggu'
     ORDER BY p.id_pembayaran DESC
 ";
 
 $stmt = $pdo->prepare($sql_kelola);
 $stmt->execute($params);
-$kelola_list = $stmt->fetchAll();
+$kelola_list = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-/* Data riwayat pembayaran */
+/* Riwayat pembayaran berhasil dan ditolak */
 $sql_riwayat = $base_sql . $where . "
-    AND p.status_pembayaran IN ('Lunas', 'Ditolak')
+    AND p.status_pembayaran IN ('Berhasil', 'Ditolak')
     ORDER BY p.id_pembayaran DESC
 ";
 
 $stmt = $pdo->prepare($sql_riwayat);
 $stmt->execute($params);
-$riwayat_list = $stmt->fetchAll();
+$riwayat_list = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-/* Ringkasan pembayaran */
-$total_transaksi = (int) $pdo->query("
+/* RINGKASAN PEMBAYARAN */
+$total_transaksi = (int)$pdo->query("
     SELECT COUNT(*) FROM pembayaran
 ")->fetchColumn();
 
-$total_lunas = (int) $pdo->query("
-    SELECT COUNT(*) FROM pembayaran
-    WHERE status_pembayaran = 'Lunas'
+$total_berhasil = (int)$pdo->query("
+    SELECT COUNT(*)
+    FROM pembayaran
+    WHERE status_pembayaran = 'Berhasil'
 ")->fetchColumn();
 
-$total_menunggu = (int) $pdo->query("
-    SELECT COUNT(*) FROM pembayaran
-    WHERE status_pembayaran = 'Menunggu Konfirmasi'
+$total_menunggu = (int)$pdo->query("
+    SELECT COUNT(*)
+    FROM pembayaran
+    WHERE status_pembayaran = 'Menunggu'
 ")->fetchColumn();
 
-$total_ditolak = (int) $pdo->query("
-    SELECT COUNT(*) FROM pembayaran
+$total_ditolak = (int)$pdo->query("
+    SELECT COUNT(*)
+    FROM pembayaran
     WHERE status_pembayaran = 'Ditolak'
 ")->fetchColumn();
 
-/* Dropdown siswa */
-$siswa_list = $pdo->query("
-    SELECT id_siswa, nis, nama_siswa, id_paket
-    FROM siswa
-    WHERE status_siswa = 'Aktif'
-    ORDER BY nama_siswa ASC
-")->fetchAll();
-
-/* Dropdown paket */
-$paket_list = $pdo->query("
-    SELECT *
-    FROM paket_belajar
-    WHERE status = 'Aktif'
-    ORDER BY nama_paket ASC
-")->fetchAll();
+/* DROPDOWN PENDAFTARAN */
+$pendaftaran_list = $pdo->query("
+    SELECT
+        pd.id_pendaftaran,
+        pd.nomor_registrasi,
+        pd.id_siswa,
+        pd.id_paket,
+        pd.jenis_program,
+        pd.biaya_pendaftaran,
+        pd.status_pendaftaran,
+        s.nama_lengkap,
+        pk.nama_paket,
+        pk.harga
+    FROM pendaftaran pd
+    INNER JOIN siswa s
+        ON pd.id_siswa = s.id_siswa
+    INNER JOIN paket_belajar pk
+        ON pd.id_paket = pk.id_paket
+    WHERE pd.status_pendaftaran <> 'Ditolak'
+    ORDER BY pd.id_pendaftaran DESC
+")->fetchAll(PDO::FETCH_ASSOC);
 
 require_once BASEPATH . '/includes/header.php';
 require_once BASEPATH . '/includes/sidebar.php';
 require_once BASEPATH . '/includes/navbar.php';
 
+/* FUNGSI TAMPILAN STATUS */
 function tampilkan_status_pembayaran($status)
 {
-    if ($status === 'Lunas') {
+    if ($status === 'Berhasil') {
         return '<span class="payment-status status-paid">
-            <i class="bi bi-check-circle-fill"></i> Lunas
+            <i class="bi bi-check-circle-fill"></i> Berhasil
         </span>';
     }
 
-    if ($status === 'Menunggu Konfirmasi') {
+    if ($status === 'Menunggu') {
         return '<span class="payment-status status-pending">
-            <i class="bi bi-hourglass-split"></i> Menunggu Konfirmasi
+            <i class="bi bi-hourglass-split"></i> Menunggu
         </span>';
     }
 
     if ($status === 'Ditolak') {
         return '<span class="payment-status status-rejected">
-            <i class="bi bi-x-circle"></i> Ditolak
+            <i class="bi bi-x-circle-fill"></i> Ditolak
         </span>';
     }
 
     return '<span class="payment-status status-unpaid">
-        <i class="bi bi-exclamation-circle"></i> Belum Lunas
+        Tidak diketahui
     </span>';
 }
 
 $data_tampil = ($active_tab === 'kelola')
     ? $kelola_list
     : $riwayat_list;
+
 ?>
 
 <style>
@@ -159,7 +186,6 @@ $data_tampil = ($active_tab === 'kelola')
     --payment-border: #dcebe8;
     --payment-text: #183f3b;
     --payment-muted: #788c89;
-    --payment-bg: #f5faf9;
 }
 
 .page-header {
@@ -183,7 +209,6 @@ $data_tampil = ($active_tab === 'kelola')
     margin: 0;
 }
 
-/* Tombol utama */
 .btn-add-action,
 .btn-payment-primary {
     display: inline-flex;
@@ -201,7 +226,6 @@ $data_tampil = ($active_tab === 'kelola')
     text-decoration: none;
     cursor: pointer;
     transition: .2s ease;
-    box-shadow: 0 4px 10px rgba(37,132,119,.12);
 }
 
 .btn-add-action:hover,
@@ -228,12 +252,6 @@ $data_tampil = ($active_tab === 'kelola')
     cursor: pointer;
 }
 
-.btn-payment-secondary:hover {
-    background: #e4eae9;
-    color: #344743;
-}
-
-/* Ringkasan */
 .payment-summary {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -303,7 +321,6 @@ $data_tampil = ($active_tab === 'kelola')
     margin-top: 3px;
 }
 
-/* Kontainer tabel */
 .payment-panel {
     border: 1px solid #edf2f1;
     border-radius: 14px;
@@ -344,15 +361,10 @@ $data_tampil = ($active_tab === 'kelola')
     border-bottom-color: var(--payment-primary);
 }
 
-.payment-tabs .badge {
-    font-size: 10px;
-}
-
 .payment-panel-body {
     padding: 20px;
 }
 
-/* Filter */
 .payment-filter {
     display: grid;
     grid-template-columns: 2fr 1fr 1fr 1fr auto;
@@ -424,12 +436,6 @@ $data_tampil = ($active_tab === 'kelola')
     text-decoration: none;
 }
 
-.btn-reset:hover {
-    background: var(--payment-mint);
-    color: var(--payment-primary);
-}
-
-/* Tabel */
 .payment-table {
     width: 100%;
     border-collapse: separate;
@@ -447,14 +453,6 @@ $data_tampil = ($active_tab === 'kelola')
     border-bottom: 1px solid var(--payment-border);
 }
 
-.payment-table thead th:first-child {
-    border-radius: 9px 0 0 0;
-}
-
-.payment-table thead th:last-child {
-    border-radius: 0 9px 0 0;
-}
-
 .payment-table tbody td {
     padding: 14px 11px;
     color: #405550;
@@ -464,10 +462,6 @@ $data_tampil = ($active_tab === 'kelola')
 
 .payment-table tbody tr:hover {
     background: #f8fcfb;
-}
-
-.payment-table tbody tr:last-child td {
-    border-bottom: 0;
 }
 
 .payment-code {
@@ -540,7 +534,6 @@ $data_tampil = ($active_tab === 'kelola')
     white-space: nowrap;
 }
 
-/* Tombol aksi tabel */
 .payment-actions {
     display: flex;
     justify-content: center;
@@ -559,7 +552,6 @@ $data_tampil = ($active_tab === 'kelola')
     font-size: 13px;
     text-decoration: none;
     cursor: pointer;
-    transition: .2s ease;
 }
 
 .payment-action.edit {
@@ -567,19 +559,9 @@ $data_tampil = ($active_tab === 'kelola')
     border-color: #cfe0fa;
 }
 
-.payment-action.edit:hover {
-    color: #fff;
-    background: #2875d0;
-}
-
 .payment-action.verify {
     color: #188b59;
     border-color: #ccebd9;
-}
-
-.payment-action.verify:hover {
-    color: #fff;
-    background: #188b59;
 }
 
 .payment-action.print {
@@ -587,22 +569,11 @@ $data_tampil = ($active_tab === 'kelola')
     border-color: #dce7e4;
 }
 
-.payment-action.print:hover {
-    color: #fff;
-    background: #536b66;
-}
-
 .payment-action.delete {
     color: #dc4b55;
     border-color: #f5d1d4;
 }
 
-.payment-action.delete:hover {
-    color: #fff;
-    background: #dc4b55;
-}
-
-/* Modal */
 .payment-modal .modal-content {
     border: 0;
     border-radius: 17px;
@@ -615,8 +586,6 @@ $data_tampil = ($active_tab === 'kelola')
 }
 
 .payment-modal .modal-header {
-    display: flex;
-    align-items: center;
     padding: 19px 24px;
     background: #e7fbf9;
     border-bottom: 1px solid #d9efeb;
@@ -629,16 +598,6 @@ $data_tampil = ($active_tab === 'kelola')
     color: #194b44;
     font-size: 19px;
     font-weight: 750;
-}
-
-.payment-modal .modal-title i {
-    color: var(--payment-primary);
-    font-size: 21px;
-}
-
-.payment-modal .btn-close {
-    opacity: .65;
-    box-shadow: none;
 }
 
 .payment-modal .modal-body {
@@ -659,12 +618,6 @@ $data_tampil = ($active_tab === 'kelola')
     row-gap: 18px;
 }
 
-.payment-form .form-control,
-.payment-form .form-select {
-    min-height: 43px;
-    padding: 10px 12px;
-}
-
 .payment-form textarea.form-control {
     min-height: 90px;
     resize: vertical;
@@ -681,11 +634,6 @@ $data_tampil = ($active_tab === 'kelola')
     font-size: 11px;
 }
 
-.payment-modal .btn-payment-primary {
-    min-height: 42px;
-    padding: 10px 18px;
-}
-
 .payment-info-box {
     padding: 13px 15px;
     margin-bottom: 20px;
@@ -697,7 +645,6 @@ $data_tampil = ($active_tab === 'kelola')
     line-height: 1.8;
 }
 
-/* Modal bukti */
 .proof-image {
     display: block;
     max-width: 100%;
@@ -707,7 +654,6 @@ $data_tampil = ($active_tab === 'kelola')
     border-radius: 12px;
 }
 
-/* Responsive */
 @media (max-width: 1100px) {
     .payment-filter {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -751,18 +697,6 @@ $data_tampil = ($active_tab === 'kelola')
     .payment-modal .modal-body {
         padding: 18px;
     }
-
-    .payment-modal .modal-header {
-        padding: 16px 18px;
-    }
-
-    .payment-modal .modal-title {
-        font-size: 16px;
-    }
-
-    .payment-modal .modal-footer {
-        padding: 14px 18px;
-    }
 }
 
 @media (max-width: 480px) {
@@ -775,8 +709,8 @@ $data_tampil = ($active_tab === 'kelola')
 <!-- HEADER HALAMAN -->
 <div class="page-header">
     <div>
-        <h1></h1>
-        <p></p>
+        <h1>Pengelolaan Pembayaran</h1>
+        <p>Kelola transaksi dan pantau riwayat pembayaran siswa Smart Education Parepare.</p>
     </div>
 
     <?php if ($active_tab === 'kelola'): ?>
@@ -809,9 +743,9 @@ $data_tampil = ($active_tab === 'kelola')
             <i class="bi bi-check-circle"></i>
         </div>
         <div>
-            <div class="summary-label">Pembayaran Lunas</div>
-            <div class="summary-value"><?= $total_lunas ?></div>
-            <div class="summary-note">Transaksi berhasil</div>
+            <div class="summary-label">Pembayaran Berhasil</div>
+            <div class="summary-value"><?= $total_berhasil ?></div>
+            <div class="summary-note">Transaksi terverifikasi</div>
         </div>
     </div>
 
@@ -843,7 +777,6 @@ $data_tampil = ($active_tab === 'kelola')
 <div class="payment-panel">
 
     <ul class="nav payment-tabs">
-
         <li class="nav-item">
             <a class="nav-link <?= $active_tab === 'kelola' ? 'active' : '' ?>"
                href="<?= base_url('modules/pembayaran/index.php?tab=kelola') ?>">
@@ -861,7 +794,6 @@ $data_tampil = ($active_tab === 'kelola')
                 <span class="badge bg-secondary"><?= count($riwayat_list) ?></span>
             </a>
         </li>
-
     </ul>
 
     <div class="payment-panel-body">
@@ -869,8 +801,7 @@ $data_tampil = ($active_tab === 'kelola')
         <!-- FILTER -->
         <form method="GET" action="" class="payment-filter">
 
-            <input type="hidden"
-                   name="tab"
+            <input type="hidden" name="tab"
                    value="<?= htmlspecialchars($active_tab) ?>">
 
             <div>
@@ -878,7 +809,7 @@ $data_tampil = ($active_tab === 'kelola')
                 <input type="text"
                        name="search"
                        class="form-control"
-                       placeholder="Nama siswa, NIS, kode transaksi..."
+                       placeholder="Nama siswa, nomor registrasi, paket..."
                        value="<?= htmlspecialchars($search) ?>">
             </div>
 
@@ -886,10 +817,9 @@ $data_tampil = ($active_tab === 'kelola')
                 <label>Status</label>
                 <select name="status" class="form-select">
                     <option value="">Semua Status</option>
-                    <option value="Menunggu Konfirmasi" <?= $status_filter === 'Menunggu Konfirmasi' ? 'selected' : '' ?>>Menunggu Konfirmasi</option>
-                    <option value="Lunas" <?= $status_filter === 'Lunas' ? 'selected' : '' ?>>Lunas</option>
+                    <option value="Menunggu" <?= $status_filter === 'Menunggu' ? 'selected' : '' ?>>Menunggu</option>
+                    <option value="Berhasil" <?= $status_filter === 'Berhasil' ? 'selected' : '' ?>>Berhasil</option>
                     <option value="Ditolak" <?= $status_filter === 'Ditolak' ? 'selected' : '' ?>>Ditolak</option>
-                    <option value="Belum Lunas" <?= $status_filter === 'Belum Lunas' ? 'selected' : '' ?>>Belum Lunas</option>
                 </select>
             </div>
 
@@ -930,10 +860,11 @@ $data_tampil = ($active_tab === 'kelola')
                 <thead>
                     <tr>
                         <th>No</th>
-                        <th>Kode Transaksi</th>
+                        <th>No. Pembayaran</th>
                         <th>Nama Siswa & Paket</th>
-                        <th>Nominal</th>
-                        <th>Tanggal Bayar</th>
+                        <th>Jenis Pembayaran</th>
+                        <th>Jumlah Bayar</th>
+                        <th>Tanggal</th>
                         <th>Metode</th>
                         <th>Bukti</th>
                         <th>Status</th>
@@ -944,13 +875,12 @@ $data_tampil = ($active_tab === 'kelola')
                 <tbody>
 
                 <?php if (empty($data_tampil)): ?>
-
                     <tr>
-                        <td colspan="9" class="text-center py-5 text-muted">
+                        <td colspan="10" class="text-center py-5 text-muted">
                             <i class="bi bi-inbox fs-2 d-block mb-2"></i>
 
                             <?php if ($active_tab === 'kelola'): ?>
-                                Tidak ada transaksi yang perlu dikelola.
+                                Tidak ada pembayaran yang perlu dikelola.
                             <?php else: ?>
                                 Belum ada riwayat pembayaran yang sesuai.
                             <?php endif; ?>
@@ -961,28 +891,47 @@ $data_tampil = ($active_tab === 'kelola')
 
                     <?php $no = 1; foreach ($data_tampil as $p): ?>
 
+                    <?php
+                        $nomor_pembayaran = 'PAY-' . str_pad(
+                            $p['id_pembayaran'],
+                            5,
+                            '0',
+                            STR_PAD_LEFT
+                        );
+
+                        $file_bukti = !empty($p['bukti_pembayaran'])
+                            ? base_url('assets/images/uploads/' . rawurlencode(basename($p['bukti_pembayaran'])))
+                            : '';
+                    ?>
+
                     <tr>
                         <td><?= $no++ ?></td>
 
                         <td>
                             <span class="payment-code">
-                                <?= htmlspecialchars($p['kode_transaksi']) ?>
+                                <?= htmlspecialchars($nomor_pembayaran) ?>
+                            </span>
+                            <span class="payment-subtext">
+                                <?= htmlspecialchars($p['nomor_registrasi']) ?>
                             </span>
                         </td>
 
                         <td>
                             <div class="payment-student-name">
-                                <?= htmlspecialchars($p['nama_siswa']) ?>
+                                <?= htmlspecialchars($p['nama_lengkap']) ?>
                             </div>
                             <span class="payment-subtext">
-                                NIS: <?= htmlspecialchars($p['nis']) ?>
-                                | <?= htmlspecialchars($p['nama_paket']) ?>
+                                <?= htmlspecialchars($p['nama_paket']) ?>
                             </span>
                         </td>
 
                         <td>
+                            <?= htmlspecialchars($p['jenis_pembayaran']) ?>
+                        </td>
+
+                        <td>
                             <span class="payment-amount">
-                                <?= format_rupiah($p['nominal']) ?>
+                                <?= format_rupiah($p['jumlah_bayar']) ?>
                             </span>
                         </td>
 
@@ -998,8 +947,7 @@ $data_tampil = ($active_tab === 'kelola')
                         </td>
 
                         <td>
-                            <?php if (!empty($p['bukti_pembayaran'])): ?>
-
+                            <?php if (!empty($file_bukti)): ?>
                                 <button type="button"
                                         class="payment-action edit"
                                         data-bs-toggle="modal"
@@ -1007,39 +955,6 @@ $data_tampil = ($active_tab === 'kelola')
                                         title="Lihat Bukti">
                                     <i class="bi bi-image"></i>
                                 </button>
-
-                                <div class="modal fade payment-modal"
-                                     id="modalBukti<?= $p['id_pembayaran'] ?>"
-                                     tabindex="-1"
-                                     aria-hidden="true">
-                                    <div class="modal-dialog modal-dialog-centered">
-                                        <div class="modal-content">
-
-                                            <div class="modal-header">
-                                                <h5 class="modal-title">
-                                                    <i class="bi bi-image"></i>
-                                                    Bukti Pembayaran
-                                                </h5>
-                                                <button type="button"
-                                                        class="btn-close"
-                                                        data-bs-dismiss="modal"></button>
-                                            </div>
-
-                                            <div class="modal-body text-center">
-                                                <img src="<?= base_url('assets/images/qris-dummy.svg') ?>"
-                                                     alt="Bukti Pembayaran"
-                                                     class="proof-image">
-
-                                                <div class="mt-3 small text-muted">
-                                                    <?= htmlspecialchars($p['nama_siswa']) ?>
-                                                    · <?= format_rupiah($p['nominal']) ?>
-                                                </div>
-                                            </div>
-
-                                        </div>
-                                    </div>
-                                </div>
-
                             <?php else: ?>
                                 <span class="text-muted">-</span>
                             <?php endif; ?>
@@ -1062,44 +977,72 @@ $data_tampil = ($active_tab === 'kelola')
                                         <i class="bi bi-pencil-square"></i>
                                     </button>
 
-                                <?php endif; ?>
-
-                                <?php if (
-                                    $active_tab === 'kelola' &&
-                                    $p['status_pembayaran'] === 'Menunggu Konfirmasi'
-                                ): ?>
-
-                                    <button type="button"
-                                            class="payment-action verify"
-                                            data-bs-toggle="modal"
-                                            data-bs-target="#modalVerifikasi<?= $p['id_pembayaran'] ?>"
-                                            title="Verifikasi Pembayaran">
-                                        <i class="bi bi-check-lg"></i>
-                                    </button>
-
-                                <?php endif; ?>
-
-                                <a href="<?= base_url('modules/pembayaran/cetak.php?id=' . $p['id_pembayaran']) ?>"
-                                   target="_blank"
-                                   class="payment-action print"
-                                   title="Cetak Kwitansi">
-                                    <i class="bi bi-printer"></i>
-                                </a>
-
-                                <?php if ($active_tab === 'kelola'): ?>
+                                    <?php if ($p['status_pembayaran'] === 'Menunggu'): ?>
+                                        <button type="button"
+                                                class="payment-action verify"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#modalVerifikasi<?= $p['id_pembayaran'] ?>"
+                                                title="Verifikasi Pembayaran">
+                                            <i class="bi bi-check-lg"></i>
+                                        </button>
+                                    <?php endif; ?>
 
                                     <a href="<?= base_url('modules/pembayaran/delete.php?id=' . $p['id_pembayaran']) ?>"
                                        class="payment-action delete btn-confirm-delete"
-                                       data-item-name="<?= htmlspecialchars($p['kode_transaksi']) ?>"
+                                       data-item-name="<?= htmlspecialchars($nomor_pembayaran) ?>"
                                        title="Hapus Transaksi">
                                         <i class="bi bi-trash"></i>
                                     </a>
 
                                 <?php endif; ?>
 
+                                <?php if ($p['status_pembayaran'] === 'Berhasil'): ?>
+                                    <a href="<?= base_url('modules/pembayaran/cetak.php?id=' . $p['id_pembayaran']) ?>"
+                                       target="_blank"
+                                       class="payment-action print"
+                                       title="Cetak Kwitansi">
+                                        <i class="bi bi-printer"></i>
+                                    </a>
+                                <?php endif; ?>
+
                             </div>
                         </td>
                     </tr>
+
+                    <!-- MODAL BUKTI -->
+                    <?php if (!empty($file_bukti)): ?>
+                        <div class="modal fade payment-modal"
+                             id="modalBukti<?= $p['id_pembayaran'] ?>"
+                             tabindex="-1"
+                             aria-hidden="true">
+                            <div class="modal-dialog modal-dialog-centered">
+                                <div class="modal-content">
+
+                                    <div class="modal-header">
+                                        <h5 class="modal-title">
+                                            <i class="bi bi-image"></i>
+                                            Bukti Pembayaran
+                                        </h5>
+                                        <button type="button"
+                                                class="btn-close"
+                                                data-bs-dismiss="modal"></button>
+                                    </div>
+
+                                    <div class="modal-body text-center">
+                                        <img src="<?= htmlspecialchars($file_bukti) ?>"
+                                             alt="Bukti Pembayaran"
+                                             class="proof-image">
+
+                                        <div class="mt-3 small text-muted">
+                                            <?= htmlspecialchars($p['nama_lengkap']) ?>
+                                            · <?= format_rupiah($p['jumlah_bayar']) ?>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+                        </div>
+                    <?php endif; ?>
 
                     <?php if ($active_tab === 'kelola'): ?>
 
@@ -1117,7 +1060,11 @@ $data_tampil = ($active_tab === 'kelola')
 
                                     <input type="hidden"
                                            name="id_pembayaran"
-                                           value="<?= (int) $p['id_pembayaran'] ?>">
+                                           value="<?= (int)$p['id_pembayaran'] ?>">
+
+                                    <input type="hidden"
+                                           name="id_pendaftaran"
+                                           value="<?= (int)$p['id_pendaftaran'] ?>">
 
                                     <div class="modal-header">
                                         <h5 class="modal-title">
@@ -1132,23 +1079,33 @@ $data_tampil = ($active_tab === 'kelola')
                                     <div class="modal-body payment-form">
 
                                         <div class="payment-info-box">
-                                            <strong>Kode Transaksi:</strong>
-                                            <?= htmlspecialchars($p['kode_transaksi']) ?><br>
+                                            <strong>Nomor Pembayaran:</strong>
+                                            <?= htmlspecialchars($nomor_pembayaran) ?><br>
                                             <strong>Nama Siswa:</strong>
-                                            <?= htmlspecialchars($p['nama_siswa']) ?>
+                                            <?= htmlspecialchars($p['nama_lengkap']) ?><br>
+                                            <strong>Paket:</strong>
+                                            <?= htmlspecialchars($p['nama_paket']) ?>
                                         </div>
 
                                         <div class="row g-3">
 
                                             <div class="col-md-6">
-                                                <label>Nominal Pembayaran (Rp) <span class="payment-required">*</span></label>
+                                                <label>Jenis Pembayaran <span class="payment-required">*</span></label>
+                                                <select name="jenis_pembayaran" class="form-select" required>
+                                                    <option value="Pendaftaran" <?= $p['jenis_pembayaran'] === 'Pendaftaran' ? 'selected' : '' ?>>Pendaftaran</option>
+                                                    <option value="Bulanan" <?= $p['jenis_pembayaran'] === 'Bulanan' ? 'selected' : '' ?>>Bulanan</option>
+                                                </select>
+                                            </div>
+
+                                            <div class="col-md-6">
+                                                <label>Jumlah Pembayaran (Rp) <span class="payment-required">*</span></label>
                                                 <input type="number"
-                                                       name="nominal"
+                                                       name="jumlah_bayar"
                                                        class="form-control"
                                                        min="1"
                                                        step="1"
                                                        required
-                                                       value="<?= htmlspecialchars((string) $p['nominal']) ?>">
+                                                       value="<?= htmlspecialchars((string)$p['jumlah_bayar']) ?>">
                                             </div>
 
                                             <div class="col-md-6">
@@ -1157,7 +1114,7 @@ $data_tampil = ($active_tab === 'kelola')
                                                        name="tanggal_bayar"
                                                        class="form-control"
                                                        required
-                                                       value="<?= htmlspecialchars(date('Y-m-d', strtotime($p['tanggal_bayar']))) ?>">
+                                                       value="<?= htmlspecialchars($p['tanggal_bayar']) ?>">
                                             </div>
 
                                             <div class="col-md-6">
@@ -1165,26 +1122,12 @@ $data_tampil = ($active_tab === 'kelola')
                                                 <select name="metode_pembayaran" class="form-select" required>
                                                     <option value="Tunai" <?= $p['metode_pembayaran'] === 'Tunai' ? 'selected' : '' ?>>Tunai</option>
                                                     <option value="QRIS" <?= $p['metode_pembayaran'] === 'QRIS' ? 'selected' : '' ?>>QRIS</option>
-                                                    <option value="Transfer Bank" <?= $p['metode_pembayaran'] === 'Transfer Bank' ? 'selected' : '' ?>>Transfer Bank</option>
-                                                </select>
-                                            </div>
-
-                                            <div class="col-md-6">
-                                                <label>Status Pembayaran <span class="payment-required">*</span></label>
-                                                <select name="status_pembayaran" class="form-select" required>
-                                                    <option value="Belum Lunas" <?= $p['status_pembayaran'] === 'Belum Lunas' ? 'selected' : '' ?>>Belum Lunas</option>
-                                                    <option value="Menunggu Konfirmasi" <?= $p['status_pembayaran'] === 'Menunggu Konfirmasi' ? 'selected' : '' ?>>Menunggu Konfirmasi</option>
-                                                    <option value="Lunas" <?= $p['status_pembayaran'] === 'Lunas' ? 'selected' : '' ?>>Lunas</option>
-                                                    <option value="Ditolak" <?= $p['status_pembayaran'] === 'Ditolak' ? 'selected' : '' ?>>Ditolak</option>
                                                 </select>
                                             </div>
 
                                             <div class="col-12">
                                                 <label>Keterangan</label>
-                                                <textarea name="keterangan"
-                                                          class="form-control"
-                                                          rows="3"
-                                                          placeholder="Tambahkan keterangan pembayaran..."><?= htmlspecialchars($p['keterangan'] ?? '') ?></textarea>
+                                                <textarea name="keterangan" class="form-control"></textarea>
                                             </div>
 
                                         </div>
@@ -1213,7 +1156,7 @@ $data_tampil = ($active_tab === 'kelola')
 
                     <?php if (
                         $active_tab === 'kelola' &&
-                        $p['status_pembayaran'] === 'Menunggu Konfirmasi'
+                        $p['status_pembayaran'] === 'Menunggu'
                     ): ?>
 
                     <!-- MODAL VERIFIKASI -->
@@ -1230,12 +1173,12 @@ $data_tampil = ($active_tab === 'kelola')
 
                                     <input type="hidden"
                                            name="id_pembayaran"
-                                           value="<?= $p['id_pembayaran'] ?>">
+                                           value="<?= (int)$p['id_pembayaran'] ?>">
 
                                     <div class="modal-header">
                                         <h5 class="modal-title">
                                             <i class="bi bi-check-circle"></i>
-                                            Verifikasi Transaksi
+                                            Verifikasi Pembayaran
                                         </h5>
                                         <button type="button"
                                                 class="btn-close"
@@ -1245,41 +1188,29 @@ $data_tampil = ($active_tab === 'kelola')
                                     <div class="modal-body payment-form">
 
                                         <div class="payment-info-box">
-                                            <div class="d-flex justify-content-between mb-2">
-                                                <span>Kode Transaksi</span>
-                                                <strong><?= htmlspecialchars($p['kode_transaksi']) ?></strong>
-                                            </div>
-
-                                            <div class="d-flex justify-content-between mb-2">
-                                                <span>Nama Siswa</span>
-                                                <strong><?= htmlspecialchars($p['nama_siswa']) ?></strong>
-                                            </div>
-
-                                            <div class="d-flex justify-content-between mb-2">
-                                                <span>Nominal</span>
-                                                <strong><?= format_rupiah($p['nominal']) ?></strong>
-                                            </div>
-
-                                            <div class="d-flex justify-content-between">
-                                                <span>Metode</span>
-                                                <strong><?= htmlspecialchars($p['metode_pembayaran']) ?></strong>
-                                            </div>
+                                            <strong>Nomor Pembayaran:</strong>
+                                            <?= htmlspecialchars($nomor_pembayaran) ?><br>
+                                            <strong>Nama Siswa:</strong>
+                                            <?= htmlspecialchars($p['nama_lengkap']) ?><br>
+                                            <strong>Jumlah:</strong>
+                                            <?= format_rupiah($p['jumlah_bayar']) ?><br>
+                                            <strong>Metode:</strong>
+                                            <?= htmlspecialchars($p['metode_pembayaran']) ?>
                                         </div>
 
                                         <div class="mb-3">
                                             <label>Tindakan Verifikasi <span class="payment-required">*</span></label>
                                             <select name="status_pembayaran" class="form-select" required>
-                                                <option value="Lunas">Setujui & Tandai Lunas</option>
+                                                <option value="Berhasil">Setujui Pembayaran</option>
                                                 <option value="Ditolak">Tolak Pembayaran</option>
                                             </select>
                                         </div>
 
                                         <div>
-                                            <label>Catatan / Keterangan Verifikasi</label>
+                                            <label>Catatan Verifikasi</label>
                                             <textarea name="keterangan"
                                                       class="form-control"
-                                                      rows="3"
-                                                      placeholder="Masukkan catatan verifikasi..."><?= htmlspecialchars($p['keterangan'] ?? '') ?></textarea>
+                                                      rows="3"><?= htmlspecialchars($p['keterangan'] ?? '') ?></textarea>
                                         </div>
 
                                     </div>
@@ -1293,7 +1224,7 @@ $data_tampil = ($active_tab === 'kelola')
 
                                         <button type="submit" class="btn-payment-primary">
                                             <i class="bi bi-check-circle"></i>
-                                            Simpan Status
+                                            Simpan Verifikasi
                                         </button>
                                     </div>
 
@@ -1332,7 +1263,7 @@ $data_tampil = ($active_tab === 'kelola')
                 <div class="modal-header">
                     <h5 class="modal-title">
                         <i class="bi bi-wallet2"></i>
-                        Input Pembayaran Siswa Baru
+                        Input Pembayaran Baru
                     </h5>
 
                     <button type="button"
@@ -1344,70 +1275,73 @@ $data_tampil = ($active_tab === 'kelola')
 
                     <div class="row">
 
-                        <div class="col-md-6">
+                        <div class="col-12">
                             <label>
-                                Pilih Siswa <span class="payment-required">*</span>
+                                Pilih Pendaftaran / Siswa
+                                <span class="payment-required">*</span>
                             </label>
 
-                            <select name="id_siswa"
-                                    id="selectSiswa"
+                            <select name="id_pendaftaran"
+                                    id="selectPendaftaran"
                                     class="form-select"
                                     required>
 
                                 <option value="">-- Pilih Siswa --</option>
 
-                                <?php foreach ($siswa_list as $s): ?>
-                                    <option value="<?= $s['id_siswa'] ?>"
-                                            data-paket="<?= $s['id_paket'] ?>">
-                                        <?= htmlspecialchars($s['nama_siswa']) ?>
-                                        (NIS: <?= htmlspecialchars($s['nis']) ?>)
+                                <?php foreach ($pendaftaran_list as $pd): ?>
+                                    <option value="<?= (int)$pd['id_pendaftaran'] ?>"
+                                            data-harga="<?= htmlspecialchars((string)$pd['harga']) ?>"
+                                            data-biaya="<?= htmlspecialchars((string)$pd['biaya_pendaftaran']) ?>">
+
+                                        <?= htmlspecialchars($pd['nama_lengkap']) ?>
+                                        -
+                                        <?= htmlspecialchars($pd['nama_paket']) ?>
+                                        (<?= htmlspecialchars($pd['nomor_registrasi']) ?>)
+
                                     </option>
                                 <?php endforeach; ?>
 
                             </select>
+                            <span class="payment-help">
+                                Pilih data pendaftaran yang sesuai dengan siswa.
+                            </span>
                         </div>
 
                         <div class="col-md-6">
                             <label>
-                                Paket Bimbingan Belajar <span class="payment-required">*</span>
+                                Jenis Pembayaran
+                                <span class="payment-required">*</span>
                             </label>
 
-                            <select name="id_paket"
-                                    id="selectPaket"
+                            <select name="jenis_pembayaran"
+                                    id="jenisPembayaran"
                                     class="form-select"
                                     required>
-
-                                <option value="">-- Pilih Paket --</option>
-
-                                <?php foreach ($paket_list as $pk): ?>
-                                    <option value="<?= $pk['id_paket'] ?>"
-                                            data-harga="<?= $pk['harga'] ?>">
-                                        <?= htmlspecialchars($pk['nama_paket']) ?>
-                                        (<?= format_rupiah($pk['harga']) ?>)
-                                    </option>
-                                <?php endforeach; ?>
-
+                                <option value="">-- Pilih Jenis --</option>
+                                <option value="Pendaftaran">Pendaftaran</option>
+                                <option value="Bulanan">Bulanan</option>
                             </select>
                         </div>
 
                         <div class="col-md-6">
                             <label>
-                                Nominal Pembayaran (Rp) <span class="payment-required">*</span>
+                                Jumlah Pembayaran (Rp)
+                                <span class="payment-required">*</span>
                             </label>
 
                             <input type="number"
-                                   step="1000"
+                                   step="1"
                                    min="1"
-                                   name="nominal"
-                                   id="inputNominal"
+                                   name="jumlah_bayar"
+                                   id="inputJumlahBayar"
                                    class="form-control"
-                                   placeholder="Contoh: 750000"
                                    required>
                         </div>
 
                         <div class="col-md-6">
                             <label>
-                                Tanggal Pembayaran <span class="payment-required">*</span>
+                                Tanggal Pembayaran
+                                <span class="payment-required">*</span>
                             </label>
 
                             <input type="date"
@@ -1419,15 +1353,15 @@ $data_tampil = ($active_tab === 'kelola')
 
                         <div class="col-md-6">
                             <label>
-                                Metode Pembayaran <span class="payment-required">*</span>
+                                Metode Pembayaran
+                                <span class="payment-required">*</span>
                             </label>
 
                             <select name="metode_pembayaran"
                                     class="form-select"
                                     required>
-                                <option value="Tunai" selected>Tunai (Cash di Kantor)</option>
+                                <option value="Tunai" selected>Tunai</option>
                                 <option value="QRIS">QRIS</option>
-                                <option value="Transfer Bank">Transfer Bank Mandiri</option>
                             </select>
                         </div>
 
@@ -1437,14 +1371,17 @@ $data_tampil = ($active_tab === 'kelola')
                             <select name="status_pembayaran"
                                     class="form-select"
                                     required>
-                                <option value="Lunas" selected>Lunas</option>
-                                <option value="Menunggu Konfirmasi">Menunggu Konfirmasi</option>
-                                <option value="Belum Lunas">Belum Lunas</option>
+                                <option value="Berhasil" selected>Berhasil</option>
+                                <option value="Menunggu">Menunggu</option>
+                                <option value="Ditolak">Ditolak</option>
                             </select>
+                            <span class="payment-help">
+                                Pembayaran tunai yang sudah diterima dapat dicatat sebagai Berhasil.
+                            </span>
                         </div>
 
                         <div class="col-md-6">
-                            <label>Upload Bukti Transaksi (Opsional)</label>
+                            <label>Upload Bukti Pembayaran (Opsional)</label>
 
                             <input type="file"
                                    name="bukti_pembayaran"
@@ -1456,13 +1393,12 @@ $data_tampil = ($active_tab === 'kelola')
                             </span>
                         </div>
 
-                        <div class="col-md-6">
-                            <label>Catatan / Keterangan Transaksi</label>
+                        <div class="col-12">
+                            <label>Catatan / Keterangan</label>
 
-                            <input type="text"
-                                   name="keterangan"
-                                   class="form-control"
-                                   placeholder="Contoh: Pembayaran SPP Bulan November 2026">
+                            <textarea name="keterangan"
+                                      class="form-control"
+                                      rows="3"></textarea>
                         </div>
 
                     </div>
@@ -1478,7 +1414,7 @@ $data_tampil = ($active_tab === 'kelola')
 
                     <button type="submit" class="btn-payment-primary">
                         <i class="bi bi-check-circle"></i>
-                        Simpan Transaksi
+                        Simpan Pembayaran
                     </button>
                 </div>
 
@@ -1489,36 +1425,34 @@ $data_tampil = ($active_tab === 'kelola')
 </div>
 
 <script>
-// Mengisi nominal otomatis berdasarkan paket yang dipilih.
-document.getElementById('selectPaket')?.addEventListener('change', function () {
-    const selectedOption = this.options[this.selectedIndex];
-    const harga = selectedOption.getAttribute('data-harga');
-    const inputNominal = document.getElementById('inputNominal');
+// Mengisi nominal berdasarkan jenis pembayaran dan pendaftaran.
+const selectPendaftaran = document.getElementById('selectPendaftaran');
+const jenisPembayaran = document.getElementById('jenisPembayaran');
+const inputJumlahBayar = document.getElementById('inputJumlahBayar');
 
-    if (harga && inputNominal) {
-        inputNominal.value = harga;
+function isiNominalPembayaran() {
+    if (!selectPendaftaran || !jenisPembayaran || !inputJumlahBayar) {
+        return;
     }
-});
 
-// Memilih paket otomatis berdasarkan paket yang terhubung ke siswa.
-document.getElementById('selectSiswa')?.addEventListener('change', function () {
-    const selectedOption = this.options[this.selectedIndex];
-    const paketId = selectedOption.getAttribute('data-paket');
-    const selectPaket = document.getElementById('selectPaket');
+    const option = selectPendaftaran.options[selectPendaftaran.selectedIndex];
 
-    if (paketId && selectPaket) {
-        selectPaket.value = paketId;
-
-        const optionPaket = selectPaket.querySelector(
-            `option[value="${paketId}"]`
-        );
-
-        if (optionPaket) {
-            document.getElementById('inputNominal').value =
-                optionPaket.getAttribute('data-harga') || '';
-        }
+    if (!option || !option.value) {
+        inputJumlahBayar.value = '';
+        return;
     }
-});
+
+    const jenis = jenisPembayaran.value;
+
+    if (jenis === 'Pendaftaran') {
+        inputJumlahBayar.value = option.dataset.biaya || '';
+    } else if (jenis === 'Bulanan') {
+        inputJumlahBayar.value = option.dataset.harga || '';
+    }
+}
+
+selectPendaftaran?.addEventListener('change', isiNominalPembayaran);
+jenisPembayaran?.addEventListener('change', isiNominalPembayaran);
 </script>
 
 <?php require_once BASEPATH . '/includes/footer.php'; ?>

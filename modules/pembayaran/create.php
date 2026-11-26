@@ -1,3 +1,4 @@
+
 <?php
 /**
  * Create Pembayaran Action
@@ -8,68 +9,117 @@ define('BASEPATH', dirname(dirname(__DIR__)));
 require_once BASEPATH . '/config/helper.php';
 require_roles(['superadmin', 'admin']);
 
+$redirect = base_url('modules/pembayaran/index.php?tab=kelola');
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    header('Location: ' . base_url('modules/pembayaran/index.php'));
+    header('Location: ' . $redirect);
     exit;
 }
 
-$id_siswa = (int)($_POST['id_siswa'] ?? 0);
-$id_paket = (int)($_POST['id_paket'] ?? 0);
-$nominal = (float)($_POST['nominal'] ?? 0);
+$id_pendaftaran = (int)($_POST['id_pendaftaran'] ?? 0);
+$jenis_pembayaran = trim($_POST['jenis_pembayaran'] ?? '');
+$jumlah_bayar = (float)($_POST['jumlah_bayar'] ?? 0);
 $tanggal_bayar = trim($_POST['tanggal_bayar'] ?? date('Y-m-d'));
 $metode_pembayaran = trim($_POST['metode_pembayaran'] ?? 'Tunai');
-$status_pembayaran = trim($_POST['status_pembayaran'] ?? 'Lunas');
+$status_pembayaran = trim($_POST['status_pembayaran'] ?? 'Menunggu');
 $keterangan = trim($_POST['keterangan'] ?? '');
 
-if (empty($id_siswa) || empty($id_paket) || $nominal <= 0) {
-    set_flash('danger', 'Siswa, Paket, dan Nominal pembayaran harus valid!');
-    header('Location: ' . base_url('modules/pembayaran/index.php'));
+$jenis_valid = ['Pendaftaran', 'Bulanan'];
+$metode_valid = ['Tunai', 'QRIS'];
+$status_valid = ['Menunggu', 'Berhasil', 'Ditolak'];
+
+$tanggal_obj = DateTime::createFromFormat('Y-m-d', $tanggal_bayar);
+$tanggal_valid = $tanggal_obj && $tanggal_obj->format('Y-m-d') === $tanggal_bayar;
+
+if (
+    $id_pendaftaran <= 0 ||
+    !in_array($jenis_pembayaran, $jenis_valid, true) ||
+    $jumlah_bayar <= 0 ||
+    !$tanggal_valid ||
+    !in_array($metode_pembayaran, $metode_valid, true) ||
+    !in_array($status_pembayaran, $status_valid, true)
+) {
+    set_flash('danger', 'Data pembayaran tidak valid. Periksa kembali formulir.');
+    header('Location: ' . $redirect);
     exit;
 }
 
-// Generate Unique Transaction Code
-$kode_transaksi = 'TRX-' . date('Ymd', strtotime($tanggal_bayar)) . '-' . strtoupper(substr(uniqid(), -5));
-
 $bukti_filename = null;
-if (isset($_FILES['bukti_pembayaran']) && $_FILES['bukti_pembayaran']['error'] === UPLOAD_ERR_OK) {
-    $upload = upload_image($_FILES['bukti_pembayaran'], 'uploads');
-    if ($upload['success']) {
-        $bukti_filename = $upload['filename'];
-    } else {
-        set_flash('danger', $upload['message']);
-        header('Location: ' . base_url('modules/pembayaran/index.php'));
+
+if (isset($_FILES['bukti_pembayaran']) &&
+    $_FILES['bukti_pembayaran']['error'] !== UPLOAD_ERR_NO_FILE) {
+
+    if ($_FILES['bukti_pembayaran']['error'] !== UPLOAD_ERR_OK) {
+        set_flash('danger', 'Upload bukti pembayaran gagal.');
+        header('Location: ' . $redirect);
         exit;
     }
+
+    $upload = upload_image($_FILES['bukti_pembayaran'], 'uploads');
+
+    if (!$upload['success']) {
+        set_flash('danger', $upload['message']);
+        header('Location: ' . $redirect);
+        exit;
+    }
+
+    $bukti_filename = $upload['filename'];
 }
 
 try {
-    $cur_user = current_user();
-    $diverifikasi_oleh = ($status_pembayaran === 'Lunas') ? $cur_user['id'] : null;
-    $tanggal_verifikasi = ($status_pembayaran === 'Lunas') ? date('Y-m-d H:i:s') : null;
+    // Pastikan pendaftaran tersedia
+    $cek = $pdo->prepare("
+        SELECT id_pendaftaran
+        FROM pendaftaran
+        WHERE id_pendaftaran = :id
+        LIMIT 1
+    ");
+    $cek->execute([':id' => $id_pendaftaran]);
+
+    if (!$cek->fetch()) {
+        set_flash('danger', 'Data pendaftaran tidak ditemukan.');
+        header('Location: ' . $redirect);
+        exit;
+    }
 
     $stmt = $pdo->prepare("
-        INSERT INTO pembayaran (kode_transaksi, id_siswa, id_paket, nominal, tanggal_bayar, metode_pembayaran, status_pembayaran, bukti_pembayaran, keterangan, diverifikasi_oleh, tanggal_verifikasi)
-        VALUES (:kode, :id_siswa, :id_paket, :nominal, :tanggal_bayar, :metode, :status, :bukti, :keterangan, :verifikator, :tgl_verif)
+        INSERT INTO pembayaran (
+            id_pendaftaran,
+            jenis_pembayaran,
+            jumlah_bayar,
+            tanggal_bayar,
+            metode_pembayaran,
+            bukti_pembayaran,
+            status_pembayaran,
+            keterangan
+        ) VALUES (
+            :id_pendaftaran,
+            :jenis_pembayaran,
+            :jumlah_bayar,
+            :tanggal_bayar,
+            :metode_pembayaran,
+            :bukti_pembayaran,
+            :status_pembayaran,
+            :keterangan
+        )
     ");
+
     $stmt->execute([
-        ':kode' => $kode_transaksi,
-        ':id_siswa' => $id_siswa,
-        ':id_paket' => $id_paket,
-        ':nominal' => $nominal,
+        ':id_pendaftaran' => $id_pendaftaran,
+        ':jenis_pembayaran' => $jenis_pembayaran,
+        ':jumlah_bayar' => $jumlah_bayar,
         ':tanggal_bayar' => $tanggal_bayar,
-        ':metode' => $metode_pembayaran,
-        ':status' => $status_pembayaran,
-        ':bukti' => $bukti_filename,
-        ':keterangan' => $keterangan,
-        ':verifikator' => $diverifikasi_oleh,
-        ':tgl_verif' => $tanggal_verifikasi
+        ':metode_pembayaran' => $metode_pembayaran,
+        ':bukti_pembayaran' => $bukti_filename,
+        ':status_pembayaran' => $status_pembayaran,
+        ':keterangan' => $keterangan !== '' ? $keterangan : null
     ]);
 
-    set_flash('success', 'Pembayaran transaksi ' . $kode_transaksi . ' sebesar ' . format_rupiah($nominal) . ' berhasil dicatat!');
+    set_flash('success', 'Data pembayaran berhasil ditambahkan.');
+
 } catch (PDOException $e) {
-    set_flash('danger', 'Gagal mencatat pembayaran: ' . $e->getMessage());
+    set_flash('danger', 'Gagal menambahkan pembayaran: ' . $e->getMessage());
 }
 
-header('Location: ' . base_url('modules/pembayaran/index.php'));
+header('Location: ' . $redirect);
 exit;
-

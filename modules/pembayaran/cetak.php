@@ -1,3 +1,4 @@
+
 <?php
 /**
  * Cetak Kwitansi / Bukti Pembayaran Digital
@@ -6,106 +7,148 @@
 
 define('BASEPATH', dirname(dirname(__DIR__)));
 require_once BASEPATH . '/config/helper.php';
+
 require_login();
 
 $id_pembayaran = (int)($_GET['id'] ?? 0);
 
 if ($id_pembayaran <= 0) {
-    die("ID Pembayaran tidak valid.");
+    die('ID Pembayaran tidak valid.');
 }
 
-// Ambil data pembayaran
-$stmt = $pdo->prepare("
-    SELECT
-        p.*,
-        s.nama_siswa,
-        s.nis,
-        s.no_telepon,
-        s.alamat,
-        pk.nama_paket,
-        pk.jenjang,
-        u.nama_lengkap AS verifikator_nama
-    FROM pembayaran p
-    JOIN siswa s ON p.id_siswa = s.id_siswa
-    JOIN paket_belajar pk ON p.id_paket = pk.id_paket
-    LEFT JOIN users u ON p.diverifikasi_oleh = u.id
-    WHERE p.id_pembayaran = :id
-    LIMIT 1
-");
+try {
+    // Ambil data pembayaran berdasarkan struktur database
+    $stmt = $pdo->prepare("
+        SELECT
+            p.*,
+            pd.nomor_registrasi,
+            pd.id_siswa,
+            pd.jenis_program,
+            s.nama_lengkap,
+            s.sekolah_asal,
+            s.kelas,
+            s.alamat_rumah,
+            s.no_hp,
+            pk.nama_paket,
+            pk.jenjang
 
-$stmt->execute([':id' => $id_pembayaran]);
-$data = $stmt->fetch(PDO::FETCH_ASSOC);
+        FROM pembayaran p
+
+        INNER JOIN pendaftaran pd
+            ON p.id_pendaftaran = pd.id_pendaftaran
+
+        INNER JOIN siswa s
+            ON pd.id_siswa = s.id_siswa
+
+        LEFT JOIN paket_belajar pk
+            ON pd.id_paket = pk.id_paket
+
+        WHERE p.id_pembayaran = :id
+        LIMIT 1
+    ");
+
+    $stmt->execute([':id' => $id_pembayaran]);
+    $data = $stmt->fetch(PDO::FETCH_ASSOC);
+
+} catch (PDOException $e) {
+    die('Gagal mengambil data pembayaran. Periksa struktur database.');
+}
 
 if (!$data) {
-    die("Data transaksi pembayaran tidak ditemukan.");
+    die('Data transaksi pembayaran tidak ditemukan.');
 }
 
-// Validasi akses pengguna
+// Validasi hak akses siswa/orang tua
 $user = current_user();
 
 if (
-    $user['role'] === 'siswa' &&
-    (int)$user['id_siswa'] !== (int)$data['id_siswa']
+    isset($user['role']) &&
+    $user['role'] === 'siswa_orang_tua' &&
+    (int)($user['id_siswa'] ?? 0) !== (int)$data['id_siswa']
 ) {
-    die("Akses ditolak. Anda tidak diizinkan mencetak kwitansi siswa lain.");
+    die('Akses ditolak. Anda tidak diizinkan mencetak kwitansi siswa lain.');
 }
 
+// Informasi instansi
 $setting = get_setting();
 
-/**
- * Konversi angka menjadi terbilang Bahasa Indonesia
- */
-function terbilang($nilai)
-{
-    $nilai = (int)abs($nilai);
+// Kontak Smart Education
+// Nomor telepon ini masih nomor contoh.
+$kontak_telepon = '0812-3456-7890';
+$kontak_email = 'smarteducationparepare@gmail.com';
 
-    $huruf = [
-        "",
-        "Satu",
-        "Dua",
-        "Tiga",
-        "Empat",
-        "Lima",
-        "Enam",
-        "Tujuh",
-        "Delapan",
-        "Sembilan",
-        "Sepuluh",
-        "Sebelas"
-    ];
+// Nomor bukti pembayaran
+$nomor_bukti = 'PAY-' . str_pad(
+    $data['id_pembayaran'],
+    5,
+    '0',
+    STR_PAD_LEFT
+);
 
-    if ($nilai < 12) {
-        return $huruf[$nilai];
-    } elseif ($nilai < 20) {
-        return terbilang($nilai - 10) . " Belas";
-    } elseif ($nilai < 100) {
-        return terbilang((int)($nilai / 10)) .
-            " Puluh " .
-            terbilang($nilai % 10);
-    } elseif ($nilai < 200) {
-        return "Seratus " . terbilang($nilai - 100);
-    } elseif ($nilai < 1000) {
-        return terbilang((int)($nilai / 100)) .
-            " Ratus " .
-            terbilang($nilai % 100);
-    } elseif ($nilai < 2000) {
-        return "Seribu " . terbilang($nilai - 1000);
-    } elseif ($nilai < 1000000) {
-        return terbilang((int)($nilai / 1000)) .
-            " Ribu " .
-            terbilang($nilai % 1000);
-    } elseif ($nilai < 1000000000) {
-        return terbilang((int)($nilai / 1000000)) .
-            " Juta " .
-            terbilang($nilai % 1000000);
-    } elseif ($nilai < 1000000000000) {
-        return terbilang((int)($nilai / 1000000000)) .
-            " Miliar " .
-            terbilang($nilai % 1000000000);
+// Fungsi terbilang
+if (!function_exists('terbilang')) {
+    function terbilang($nilai)
+    {
+        $nilai = (int)abs($nilai);
+
+        $huruf = [
+            '',
+            'Satu',
+            'Dua',
+            'Tiga',
+            'Empat',
+            'Lima',
+            'Enam',
+            'Tujuh',
+            'Delapan',
+            'Sembilan',
+            'Sepuluh',
+            'Sebelas'
+        ];
+
+        if ($nilai < 12) {
+            return $huruf[$nilai];
+        } elseif ($nilai < 20) {
+            return terbilang($nilai - 10) . ' Belas';
+        } elseif ($nilai < 100) {
+            return terbilang((int)($nilai / 10)) .
+                ' Puluh ' .
+                terbilang($nilai % 10);
+        } elseif ($nilai < 200) {
+            return 'Seratus ' . terbilang($nilai - 100);
+        } elseif ($nilai < 1000) {
+            return terbilang((int)($nilai / 100)) .
+                ' Ratus ' .
+                terbilang($nilai % 100);
+        } elseif ($nilai < 2000) {
+            return 'Seribu ' . terbilang($nilai - 1000);
+        } elseif ($nilai < 1000000) {
+            return terbilang((int)($nilai / 1000)) .
+                ' Ribu ' .
+                terbilang($nilai % 1000);
+        } elseif ($nilai < 1000000000) {
+            return terbilang((int)($nilai / 1000000)) .
+                ' Juta ' .
+                terbilang($nilai % 1000000);
+        } elseif ($nilai < 1000000000000) {
+            return terbilang((int)($nilai / 1000000000)) .
+                ' Miliar ' .
+                terbilang($nilai % 1000000000);
+        }
+
+        return (string)$nilai;
     }
-
-    return (string)$nilai;
 }
+
+$tanggal = date(
+    'd/m/Y',
+    strtotime($data['tanggal_bayar'])
+);
+
+$status = $data['status_pembayaran'] ?? 'Menunggu';
+
+$is_berhasil = ($status === 'Berhasil');
+
 ?>
 
 <!DOCTYPE html>
@@ -115,9 +158,7 @@ function terbilang($nilai)
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>
-        Kwitansi - <?= htmlspecialchars($data['kode_transaksi']) ?>
-    </title>
+    <title>Kwitansi <?= htmlspecialchars($nomor_bukti) ?></title>
 
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 
@@ -149,7 +190,6 @@ function terbilang($nilai)
             box-shadow: 0 12px 35px rgba(20, 65, 58, 0.08);
         }
 
-        /* Tombol aksi */
         .receipt-actions {
             display: flex;
             justify-content: space-between;
@@ -166,11 +206,9 @@ function terbilang($nilai)
             gap: 8px;
             padding: 10px 17px;
             border-radius: 8px;
-            font-family: 'Poppins', sans-serif;
             font-size: 13px;
-            font-weight: 500;
+            font-weight: 600;
             text-decoration: none;
-            transition: all .2s ease;
             cursor: pointer;
         }
 
@@ -183,7 +221,6 @@ function terbilang($nilai)
         .btn-back:hover {
             color: #ffffff;
             background: #277f73;
-            border-color: #277f73;
         }
 
         .btn-print {
@@ -193,12 +230,9 @@ function terbilang($nilai)
         }
 
         .btn-print:hover {
-            color: #ffffff;
             background: #17675e;
-            border-color: #17675e;
         }
 
-        /* Header kwitansi */
         .receipt-header {
             border-bottom: 2px dashed #cbded9;
             padding-bottom: 22px;
@@ -206,10 +240,10 @@ function terbilang($nilai)
         }
 
         .receipt-logo {
-            width: 40px;
-            height: 40px;
+            width: 48px;
+            height: 48px;
             background: #98EDE1;
-            border-radius: 10px;
+            border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -217,7 +251,7 @@ function terbilang($nilai)
         }
 
         .receipt-logo i {
-            font-size: 21px;
+            font-size: 25px;
             color: #174b45;
         }
 
@@ -242,10 +276,8 @@ function terbilang($nilai)
             border-radius: 7px;
             font-size: 13px;
             font-weight: 700;
-            letter-spacing: .5px;
         }
 
-        /* Watermark */
         .watermark {
             position: absolute;
             top: 50%;
@@ -260,7 +292,6 @@ function terbilang($nilai)
             white-space: nowrap;
         }
 
-        /* Tabel informasi */
         .receipt-table {
             width: 100%;
             margin-bottom: 25px;
@@ -284,7 +315,6 @@ function terbilang($nilai)
             font-size: 14px;
         }
 
-        /* Nominal pembayaran */
         .amount-box {
             background: #effcf9;
             border: 1.5px solid #98EDE1;
@@ -307,7 +337,6 @@ function terbilang($nilai)
             font-weight: 800;
         }
 
-        /* Stempel */
         .stamp-box {
             display: inline-block;
             border: 2px solid #247f73;
@@ -317,11 +346,9 @@ function terbilang($nilai)
             font-weight: 800;
             text-transform: uppercase;
             transform: rotate(-5deg);
-            letter-spacing: 1px;
             font-size: 13px;
         }
 
-        /* Footer */
         .receipt-footer {
             position: relative;
             z-index: 1;
@@ -385,11 +412,7 @@ function terbilang($nilai)
                 display: none !important;
             }
 
-            .amount-box {
-                print-color-adjust: exact;
-                -webkit-print-color-adjust: exact;
-            }
-
+            .amount-box,
             .stamp-box,
             .watermark {
                 print-color-adjust: exact;
@@ -404,32 +427,28 @@ function terbilang($nilai)
 <div class="receipt-card">
 
     <div class="watermark">
-        <?= htmlspecialchars($data['status_pembayaran']) ?>
+        <?= htmlspecialchars($status) ?>
     </div>
 
-    <!-- Tombol Aksi -->
+    <!-- Tombol -->
     <div class="receipt-actions no-print">
 
-        <a
-            href="<?= base_url('modules/pembayaran/index.php') ?>"
-            class="btn-back"
-        >
+        <a href="<?= base_url('modules/pembayaran/index.php') ?>"
+           class="btn-back">
             <i class="bi bi-arrow-left"></i>
             Kembali
         </a>
 
-        <button
-            type="button"
-            onclick="window.print()"
-            class="btn-print"
-        >
+        <button type="button"
+                onclick="window.print()"
+                class="btn-print">
             <i class="bi bi-printer"></i>
             Cetak / Simpan PDF
         </button>
 
     </div>
 
-    <!-- Header Instansi -->
+    <!-- Header -->
     <div class="receipt-header d-flex justify-content-between align-items-center flex-wrap gap-3">
 
         <div>
@@ -448,15 +467,15 @@ function terbilang($nilai)
 
             <div class="receipt-info">
 
-                <?= htmlspecialchars($setting['alamat'] ?? 'Jl. Bau Massepe No. 142, Kota Parepare') ?><br>
+                <?= htmlspecialchars($setting['alamat'] ?? 'Parepare') ?><br>
 
                 Telp:
-                <?= htmlspecialchars($setting['telepon'] ?? '0812-4455-6677') ?>
+                <?= htmlspecialchars($kontak_telepon) ?>
 
-                |
+                <br>
 
                 Email:
-                <?= htmlspecialchars($setting['email'] ?? 'admin@smarteducation.sch.id') ?>
+                <?= htmlspecialchars($kontak_email) ?>
 
             </div>
 
@@ -471,7 +490,14 @@ function terbilang($nilai)
             <div class="small text-muted mt-2">
                 No. Bukti:
                 <strong>
-                    <?= htmlspecialchars($data['kode_transaksi']) ?>
+                    <?= htmlspecialchars($nomor_bukti) ?>
+                </strong>
+            </div>
+
+            <div class="small text-muted">
+                Registrasi:
+                <strong>
+                    <?= htmlspecialchars($data['nomor_registrasi']) ?>
                 </strong>
             </div>
 
@@ -485,31 +511,57 @@ function terbilang($nilai)
         <tr>
             <th>Telah Diterima Dari</th>
             <td>
-                : <?= htmlspecialchars($data['nama_siswa']) ?>
-                (NIS: <?= htmlspecialchars($data['nis']) ?>)
+                : <?= htmlspecialchars($data['nama_lengkap']) ?>
+            </td>
+        </tr>
+
+        <tr>
+            <th>Sekolah Asal</th>
+            <td>
+                : <?= htmlspecialchars($data['sekolah_asal'] ?? '-') ?>
+            </td>
+        </tr>
+
+        <tr>
+            <th>Kelas Siswa</th>
+            <td>
+                : <?= htmlspecialchars($data['kelas'] ?? '-') ?>
             </td>
         </tr>
 
         <tr>
             <th>Untuk Pembayaran</th>
             <td>
-                : Bimbingan Belajar -
-                <?= htmlspecialchars($data['nama_paket']) ?>
-                (<?= htmlspecialchars($data['jenjang']) ?>)
+                : <?= htmlspecialchars($data['jenis_pembayaran']) ?>
+            </td>
+        </tr>
+
+        <tr>
+            <th>Paket Belajar</th>
+            <td>
+                : <?= htmlspecialchars($data['nama_paket'] ?? '-') ?>
+                (<?= htmlspecialchars($data['jenjang'] ?? '-') ?>)
+            </td>
+        </tr>
+
+        <tr>
+            <th>Jenis Program</th>
+            <td>
+                : <?= htmlspecialchars($data['jenis_program']) ?>
             </td>
         </tr>
 
         <tr>
             <th>Keterangan</th>
             <td>
-                : <?= htmlspecialchars($data['keterangan'] ?? 'Pembayaran SPP Bimbingan Belajar') ?>
+                : <?= htmlspecialchars($data['keterangan'] ?? '-') ?>
             </td>
         </tr>
 
         <tr>
-            <th>Tanggal Transaksi</th>
+            <th>Tanggal Pembayaran</th>
             <td>
-                : <?= format_tanggal($data['tanggal_bayar'], true) ?>
+                : <?= htmlspecialchars($tanggal) ?>
             </td>
         </tr>
 
@@ -521,21 +573,27 @@ function terbilang($nilai)
         </tr>
 
         <tr>
-            <th>Status Transaksi</th>
+            <th>Status Pembayaran</th>
             <td>
                 :
 
-                <?php if ($data['status_pembayaran'] === 'Lunas'): ?>
+                <?php if ($is_berhasil): ?>
 
                     <span class="text-success fw-bold">
                         <i class="bi bi-check-circle-fill me-1"></i>
-                        LUNAS
+                        BERHASIL
+                    </span>
+
+                <?php elseif ($status === 'Ditolak'): ?>
+
+                    <span class="text-danger fw-bold">
+                        DITOLAK
                     </span>
 
                 <?php else: ?>
 
                     <span class="text-warning fw-bold">
-                        <?= htmlspecialchars($data['status_pembayaran']) ?>
+                        MENUNGGU
                     </span>
 
                 <?php endif; ?>
@@ -545,45 +603,52 @@ function terbilang($nilai)
 
     </table>
 
-    <!-- Nominal Pembayaran -->
+    <!-- Nominal -->
     <div class="amount-box mb-4">
 
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
 
             <span class="amount-label">
-                Jumlah Pembayaran:
+                Jumlah Pembayaran
             </span>
 
             <h3 class="amount-value mb-0">
-                <?= format_rupiah($data['nominal']) ?>
+                <?= format_rupiah($data['jumlah_bayar']) ?>
             </h3>
 
         </div>
 
         <div class="small text-muted">
+
             <em>
                 Terbilang:
+
                 <strong>
-                    # <?= htmlspecialchars(terbilang($data['nominal'])) ?> Rupiah #
+                    # <?= htmlspecialchars(terbilang($data['jumlah_bayar'])) ?> Rupiah #
                 </strong>
             </em>
+
         </div>
 
     </div>
 
-    <!-- Footer Kwitansi -->
+    <!-- Footer -->
     <div class="row pt-3 align-items-end receipt-footer">
 
         <div class="col-6">
 
-            <div class="stamp-box mb-3">
-                <i class="bi bi-patch-check-fill me-1"></i>
-                SMART EDU VERIFIED
-            </div>
+            <?php if ($is_berhasil): ?>
+
+                <div class="stamp-box mb-3">
+                    <i class="bi bi-patch-check-fill me-1"></i>
+                    Pembayaran Berhasil
+                </div>
+
+            <?php endif; ?>
 
             <div class="small text-muted">
-                Bukti sah transaksi digital bimbingan belajar.<br>
-                Simpan kwitansi ini sebagai bukti pembayaran resmi.
+                Bukti transaksi pembayaran Smart Education Parepare.
+                Simpan kwitansi ini sebagai bukti pembayaran.
             </div>
 
         </div>
@@ -591,21 +656,16 @@ function terbilang($nilai)
         <div class="col-6 text-end">
 
             <div class="small text-muted mb-1">
-                Kota Parepare,
-                <?= format_tanggal($data['tanggal_bayar']) ?>
+                Parepare, <?= htmlspecialchars($tanggal) ?>
             </div>
 
             <div class="small fw-semibold text-dark">
-                Petugas Keuangan,
+                Petugas Administrasi,
             </div>
 
             <div style="height: 55px;"></div>
 
             <div class="fw-bold text-dark text-decoration-underline">
-                <?= htmlspecialchars($data['verifikator_nama'] ?? 'Bagian Administrasi') ?>
-            </div>
-
-            <div class="small text-muted">
                 Smart Education Parepare
             </div>
 

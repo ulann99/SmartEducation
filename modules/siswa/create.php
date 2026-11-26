@@ -1,17 +1,33 @@
+
 <?php
 /**
- * Create Siswa Action
+ * Tambah Data Siswa
  * SMART EDUCATION PAREPARE
  */
 
-define('BASEPATH', dirname(dirname(__DIR__)));
+if (!defined('BASEPATH')) {
+    define('BASEPATH', dirname(dirname(__DIR__)));
+}
 
 require_once BASEPATH . '/config/helper.php';
 
 require_roles(['superadmin', 'admin']);
 
 // ========================================
-// PASTIKAN REQUEST POST
+// FUNGSI REDIRECT DAN NOTIFIKASI
+// ========================================
+
+function create_siswa_redirect($type, $message)
+{
+    $_SESSION['flash_message'] = $message;
+    $_SESSION['flash_type'] = $type;
+
+    header('Location: ' . base_url('modules/siswa/index.php'));
+    exit;
+}
+
+// ========================================
+// VALIDASI METHOD POST
 // ========================================
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -20,304 +36,377 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 // ========================================
-// AMBIL DATA FORM
+// VALIDASI CSRF TOKEN
 // ========================================
 
-$nis = trim($_POST['nis'] ?? '');
-$nama_siswa = trim($_POST['nama_siswa'] ?? '');
-$jenis_kelamin = trim($_POST['jenis_kelamin'] ?? '');
-$id_paket = !empty($_POST['id_paket'])
-    ? (int) $_POST['id_paket']
-    : null;
+$csrf_token = $_POST['csrf_token'] ?? '';
 
-$no_telepon = trim($_POST['no_telepon'] ?? '');
-$email = trim($_POST['email'] ?? '');
-$tanggal_daftar = trim($_POST['tanggal_daftar'] ?? date('Y-m-d'));
-$status_siswa = trim($_POST['status_siswa'] ?? 'Aktif');
-$alamat = trim($_POST['alamat'] ?? '');
-
-$buat_akun = isset($_POST['buat_akun']) &&
-             $_POST['buat_akun'] === '1';
-
-// ========================================
-// VALIDASI DATA
-// ========================================
-
-if ($nis === '' || $nama_siswa === '') {
-    set_flash('danger', 'NIS dan Nama Siswa wajib diisi!');
-    header('Location: ' . base_url('modules/siswa/index.php'));
-    exit;
-}
-
-if (strlen($nis) > 20) {
-    set_flash('danger', 'NIS maksimal 20 karakter!');
-    header('Location: ' . base_url('modules/siswa/index.php'));
-    exit;
-}
-
-if (strlen($nama_siswa) > 100) {
-    set_flash('danger', 'Nama siswa maksimal 100 karakter!');
-    header('Location: ' . base_url('modules/siswa/index.php'));
-    exit;
-}
-
-if (!in_array($jenis_kelamin, ['Laki-laki', 'Perempuan'], true)) {
-    set_flash('danger', 'Jenis kelamin tidak valid!');
-    header('Location: ' . base_url('modules/siswa/index.php'));
-    exit;
-}
-
-if (!in_array($status_siswa, ['Aktif', 'Alumni', 'Non-Aktif'], true)) {
-    set_flash('danger', 'Status siswa tidak valid!');
-    header('Location: ' . base_url('modules/siswa/index.php'));
-    exit;
-}
-
-if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-    set_flash('danger', 'Format email tidak valid!');
-    header('Location: ' . base_url('modules/siswa/index.php'));
-    exit;
-}
-
-if (strlen($email) > 100 || strlen($no_telepon) > 20) {
-    set_flash('danger', 'Email atau nomor telepon melebihi batas karakter!');
-    header('Location: ' . base_url('modules/siswa/index.php'));
-    exit;
-}
-
-$date = DateTime::createFromFormat('Y-m-d', $tanggal_daftar);
-
-if (!$date || $date->format('Y-m-d') !== $tanggal_daftar) {
-    set_flash('danger', 'Tanggal pendaftaran tidak valid!');
-    header('Location: ' . base_url('modules/siswa/index.php'));
-    exit;
-}
-
-// ========================================
-// PROSES PENYIMPANAN
-// ========================================
-
-try {
-
-    // Mulai transaksi database
-    $pdo->beginTransaction();
-
-    // ------------------------------------
-    // 1. CEK NIS
-    // ------------------------------------
-
-    $stmt_check = $pdo->prepare("
-        SELECT id_siswa
-        FROM siswa
-        WHERE nis = :nis
-        LIMIT 1
-    ");
-
-    $stmt_check->execute([
-        ':nis' => $nis
-    ]);
-
-    if ($stmt_check->fetch()) {
-        throw new Exception('NIS "' . $nis . '" sudah terdaftar!');
-    }
-
-    // ------------------------------------
-    // 2. CEK PAKET BELAJAR
-    // ------------------------------------
-
-    if ($id_paket !== null) {
-
-        $stmt_paket = $pdo->prepare("
-            SELECT id_paket
-            FROM paket_belajar
-            WHERE id_paket = :id_paket
-            AND status = 'Aktif'
-            LIMIT 1
-        ");
-
-        $stmt_paket->execute([
-            ':id_paket' => $id_paket
-        ]);
-
-        if (!$stmt_paket->fetch()) {
-            throw new Exception('Paket belajar tidak tersedia atau sudah tidak aktif!');
-        }
-    }
-
-    // ------------------------------------
-    // 3. CEK EMAIL
-    // ------------------------------------
-
-    if ($email !== '') {
-
-        $stmt_email = $pdo->prepare("
-            SELECT id
-            FROM users
-            WHERE email = :email
-            LIMIT 1
-        ");
-
-        $stmt_email->execute([
-            ':email' => $email
-        ]);
-
-        if ($stmt_email->fetch()) {
-            throw new Exception('Email sudah digunakan oleh akun lain!');
-        }
-    }
-
-    // ------------------------------------
-    // 4. CEK USERNAME OTOMATIS
-    // ------------------------------------
-
-    if ($buat_akun) {
-
-        $stmt_username = $pdo->prepare("
-            SELECT id
-            FROM users
-            WHERE username = :username
-            LIMIT 1
-        ");
-
-        $stmt_username->execute([
-            ':username' => $nis
-        ]);
-
-        if ($stmt_username->fetch()) {
-            throw new Exception('Username berdasarkan NIS sudah digunakan!');
-        }
-    }
-
-    // ------------------------------------
-    // 5. SIMPAN DATA SISWA
-    // ------------------------------------
-
-    $stmt_siswa = $pdo->prepare("
-        INSERT INTO siswa (
-            nis,
-            nama_siswa,
-            jenis_kelamin,
-            alamat,
-            no_telepon,
-            email,
-            id_paket,
-            status_siswa,
-            tanggal_daftar
-        ) VALUES (
-            :nis,
-            :nama_siswa,
-            :jenis_kelamin,
-            :alamat,
-            :no_telepon,
-            :email,
-            :id_paket,
-            :status_siswa,
-            :tanggal_daftar
-        )
-    ");
-
-    $stmt_siswa->execute([
-        ':nis' => $nis,
-        ':nama_siswa' => $nama_siswa,
-        ':jenis_kelamin' => $jenis_kelamin,
-        ':alamat' => $alamat !== '' ? $alamat : null,
-        ':no_telepon' => $no_telepon !== '' ? $no_telepon : null,
-        ':email' => $email !== '' ? $email : null,
-        ':id_paket' => $id_paket,
-        ':status_siswa' => $status_siswa,
-        ':tanggal_daftar' => $tanggal_daftar
-    ]);
-
-    $new_id_siswa = $pdo->lastInsertId();
-
-    // ------------------------------------
-    // 6. BUAT AKUN LOGIN SISWA
-    // ------------------------------------
-
-    if ($buat_akun) {
-
-        $username = $nis;
-
-        // Password awal akun siswa
-        $password_default = 'siswa123';
-
-        // Hash password menggunakan Bcrypt
-        $password_hash = password_hash(
-            $password_default,
-            PASSWORD_BCRYPT
-        );
-
-        if ($password_hash === false) {
-            throw new Exception('Gagal mengamankan password akun siswa!');
-        }
-
-        $stmt_user = $pdo->prepare("
-            INSERT INTO users (
-                username,
-                password,
-                nama_lengkap,
-                email,
-                role,
-                id_siswa
-            ) VALUES (
-                :username,
-                :password,
-                :nama_lengkap,
-                :email,
-                'siswa',
-                :id_siswa
-            )
-        ");
-
-        $stmt_user->execute([
-            ':username' => $username,
-            ':password' => $password_hash,
-            ':nama_lengkap' => $nama_siswa,
-            ':email' => $email !== '' ? $email : null,
-            ':id_siswa' => $new_id_siswa
-        ]);
-    }
-
-    // ------------------------------------
-    // 7. SIMPAN TRANSAKSI
-    // ------------------------------------
-
-    $pdo->commit();
-
-    if ($buat_akun) {
-
-        set_flash(
-            'success',
-            'Data siswa berhasil ditambahkan! Username: ' .
-            $nis .
-            ' | Password awal: siswa123'
-        );
-
-    } else {
-
-        set_flash(
-            'success',
-            'Data siswa "' . $nama_siswa .
-            '" berhasil ditambahkan!'
-        );
-    }
-
-} catch (Throwable $e) {
-
-    // Batalkan seluruh perubahan jika gagal
-    if ($pdo->inTransaction()) {
-        $pdo->rollBack();
-    }
-
-    set_flash(
+if (
+    empty($_SESSION['csrf_siswa']) ||
+    !is_string($csrf_token) ||
+    !hash_equals($_SESSION['csrf_siswa'], $csrf_token)
+) {
+    create_siswa_redirect(
         'danger',
-        'Gagal menambahkan data siswa: ' . $e->getMessage()
+        'Permintaan tidak valid. Silakan coba kembali.'
     );
 }
 
 // ========================================
-// KEMBALI KE DATA SISWA
+// AMBIL DATA SISWA
 // ========================================
 
-header('Location: ' . base_url('modules/siswa/index.php'));
-exit;
+$nama_lengkap  = trim($_POST['nama_lengkap'] ?? '');
+$alamat_rumah  = trim($_POST['alamat_rumah'] ?? '');
+$sekolah_asal  = trim($_POST['sekolah_asal'] ?? '');
+$kelas         = trim($_POST['kelas'] ?? '');
+$agama         = trim($_POST['agama'] ?? '');
+$tempat_lahir  = trim($_POST['tempat_lahir'] ?? '');
+$tanggal_lahir = trim($_POST['tanggal_lahir'] ?? '');
+$no_hp         = trim($_POST['no_hp'] ?? '');
+$no_rumah      = trim($_POST['no_rumah'] ?? '');
+
+// ========================================
+// AMBIL DATA ORANG TUA
+// ========================================
+
+$nama_ayah = trim($_POST['nama_ayah'] ?? '');
+$nama_ibu = trim($_POST['nama_ibu'] ?? '');
+
+$nama_pemberi_informasi = trim(
+    $_POST['nama_pemberi_informasi'] ?? ''
+);
+
+$alamat_orang_tua = trim(
+    $_POST['alamat_orang_tua'] ?? ''
+);
+
+$no_hp_ayah = trim($_POST['no_hp_ayah'] ?? '');
+$no_hp_ibu = trim($_POST['no_hp_ibu'] ?? '');
+
+// ========================================
+// AMBIL DATA PENDAFTARAN
+// ========================================
+
+$tanggal_pendaftaran = trim(
+    $_POST['tanggal_pendaftaran'] ?? ''
+);
+
+$id_paket = (int)($_POST['id_paket'] ?? 0);
+
+$jenis_program = trim(
+    $_POST['jenis_program'] ?? ''
+);
+
+$pilihan_hari = trim(
+    $_POST['pilihan_hari'] ?? ''
+);
+
+$pilihan_jam = trim(
+    $_POST['pilihan_jam'] ?? ''
+);
+
+// ========================================
+// VALIDASI DATA WAJIB
+// ========================================
+
+$required_fields = [
+    $nama_lengkap,
+    $alamat_rumah,
+    $sekolah_asal,
+    $kelas,
+    $agama,
+    $tempat_lahir,
+    $tanggal_lahir,
+    $no_hp,
+    $nama_ayah,
+    $nama_ibu,
+    $nama_pemberi_informasi,
+    $alamat_orang_tua,
+    $no_hp_ayah,
+    $no_hp_ibu,
+    $tanggal_pendaftaran,
+    $pilihan_hari,
+    $pilihan_jam
+];
+
+foreach ($required_fields as $field) {
+    if ($field === '') {
+        create_siswa_redirect(
+            'danger',
+            'Semua kolom wajib harus diisi.'
+        );
+    }
+}
+
+// ========================================
+// VALIDASI PAKET BELAJAR
+// ========================================
+
+if ($id_paket <= 0) {
+    create_siswa_redirect(
+        'danger',
+        'Silakan pilih paket belajar.'
+    );
+}
+
+// ========================================
+// VALIDASI JENIS PROGRAM
+// ========================================
+
+if (!in_array(
+    $jenis_program,
+    ['Reguler', 'Privat'],
+    true
+)) {
+    create_siswa_redirect(
+        'danger',
+        'Jenis program yang dipilih tidak valid.'
+    );
+}
+
+// ========================================
+// VALIDASI TANGGAL
+// ========================================
+
+function create_siswa_valid_date($date)
+{
+    $d = DateTime::createFromFormat('Y-m-d', $date);
+
+    return $d && $d->format('Y-m-d') === $date;
+}
+
+if (!create_siswa_valid_date($tanggal_lahir)) {
+    create_siswa_redirect(
+        'danger',
+        'Tanggal lahir tidak valid.'
+    );
+}
+
+if (!create_siswa_valid_date($tanggal_pendaftaran)) {
+    create_siswa_redirect(
+        'danger',
+        'Tanggal pendaftaran tidak valid.'
+    );
+}
+
+if ($tanggal_lahir > date('Y-m-d')) {
+    create_siswa_redirect(
+        'danger',
+        'Tanggal lahir tidak boleh melebihi hari ini.'
+    );
+}
+
+// ========================================
+// VALIDASI NOMOR TELEPON
+// ========================================
+
+$phone_pattern = '/^[0-9+\-\s()]{6,20}$/';
+
+foreach ([$no_hp, $no_hp_ayah, $no_hp_ibu] as $phone) {
+    if (!preg_match($phone_pattern, $phone)) {
+        create_siswa_redirect(
+            'danger',
+            'Format nomor HP tidak valid.'
+        );
+    }
+}
+
+if (
+    $no_rumah !== '' &&
+    !preg_match($phone_pattern, $no_rumah)
+) {
+    create_siswa_redirect(
+        'danger',
+        'Format nomor rumah tidak valid.'
+    );
+}
+
+// ========================================
+// PROSES PENYIMPANAN DATABASE
+// ========================================
+
+try {
+
+    // Mulai transaksi
+    $pdo->beginTransaction();
+
+    // ------------------------------------
+    // 1. PERIKSA PAKET BELAJAR
+    // ------------------------------------
+
+    $stmt_paket = $pdo->prepare("
+        SELECT id_paket
+        FROM paket_belajar
+        WHERE id_paket = :id_paket
+          AND status = 'aktif'
+        LIMIT 1
+    ");
+
+    $stmt_paket->execute([
+        ':id_paket' => $id_paket
+    ]);
+
+    $paket = $stmt_paket->fetch(PDO::FETCH_ASSOC);
+
+    if (!$paket) {
+        throw new Exception(
+            'Paket belajar tidak ditemukan atau tidak aktif.'
+        );
+    }
+
+    // ------------------------------------
+    // 2. SIMPAN DATA SISWA
+    // ------------------------------------
+
+    $stmt_siswa = $pdo->prepare("
+        INSERT INTO siswa (
+            nama_lengkap,
+            alamat_rumah,
+            sekolah_asal,
+            kelas,
+            agama,
+            tempat_lahir,
+            tanggal_lahir,
+            no_hp,
+            no_rumah
+        ) VALUES (
+            :nama_lengkap,
+            :alamat_rumah,
+            :sekolah_asal,
+            :kelas,
+            :agama,
+            :tempat_lahir,
+            :tanggal_lahir,
+            :no_hp,
+            :no_rumah
+        )
+    ");
+
+    $stmt_siswa->execute([
+        ':nama_lengkap' => $nama_lengkap,
+        ':alamat_rumah' => $alamat_rumah,
+        ':sekolah_asal' => $sekolah_asal,
+        ':kelas' => $kelas,
+        ':agama' => $agama,
+        ':tempat_lahir' => $tempat_lahir,
+        ':tanggal_lahir' => $tanggal_lahir,
+        ':no_hp' => $no_hp,
+        ':no_rumah' => $no_rumah !== '' ? $no_rumah : null
+    ]);
+
+    $id_siswa = (int)$pdo->lastInsertId();
+
+    // ------------------------------------
+    // 3. SIMPAN DATA ORANG TUA
+    // ------------------------------------
+
+    $stmt_orang_tua = $pdo->prepare("
+        INSERT INTO orang_tua (
+            id_siswa,
+            nama_ayah,
+            nama_ibu,
+            nama_pemberi_informasi,
+            alamat_rumah,
+            no_hp_ayah,
+            no_hp_ibu
+        ) VALUES (
+            :id_siswa,
+            :nama_ayah,
+            :nama_ibu,
+            :nama_pemberi_informasi,
+            :alamat_rumah,
+            :no_hp_ayah,
+            :no_hp_ibu
+        )
+    ");
+
+    $stmt_orang_tua->execute([
+        ':id_siswa' => $id_siswa,
+        ':nama_ayah' => $nama_ayah,
+        ':nama_ibu' => $nama_ibu,
+        ':nama_pemberi_informasi' => $nama_pemberi_informasi,
+        ':alamat_rumah' => $alamat_orang_tua,
+        ':no_hp_ayah' => $no_hp_ayah,
+        ':no_hp_ibu' => $no_hp_ibu
+    ]);
+
+    // ------------------------------------
+    // 4. BUAT NOMOR REGISTRASI
+    // ------------------------------------
+
+    $nomor_registrasi = 'REG-' .
+        date('Ymd') . '-' .
+        strtoupper(bin2hex(random_bytes(3)));
+
+    // ------------------------------------
+    // 5. SIMPAN DATA PENDAFTARAN
+    // ------------------------------------
+
+    $stmt_pendaftaran = $pdo->prepare("
+        INSERT INTO pendaftaran (
+            nomor_registrasi,
+            id_siswa,
+            id_paket,
+            tanggal_pendaftaran,
+            jenis_program,
+            pilihan_hari,
+            pilihan_jam,
+            biaya_pendaftaran,
+            status_pendaftaran
+        ) VALUES (
+            :nomor_registrasi,
+            :id_siswa,
+            :id_paket,
+            :tanggal_pendaftaran,
+            :jenis_program,
+            :pilihan_hari,
+            :pilihan_jam,
+            220000,
+            'Menunggu'
+        )
+    ");
+
+    $stmt_pendaftaran->execute([
+        ':nomor_registrasi' => $nomor_registrasi,
+        ':id_siswa' => $id_siswa,
+        ':id_paket' => $id_paket,
+        ':tanggal_pendaftaran' => $tanggal_pendaftaran,
+        ':jenis_program' => $jenis_program,
+        ':pilihan_hari' => $pilihan_hari,
+        ':pilihan_jam' => $pilihan_jam
+    ]);
+
+    // ------------------------------------
+    // 6. SIMPAN SEMUA PERUBAHAN
+    // ------------------------------------
+
+    $pdo->commit();
+
+    // Hapus token setelah berhasil digunakan
+    unset($_SESSION['csrf_siswa']);
+
+    create_siswa_redirect(
+        'success',
+        'Data siswa ' . $nama_lengkap .
+        ' berhasil ditambahkan. Nomor registrasi: ' .
+        $nomor_registrasi
+    );
+
+} catch (Throwable $e) {
+
+    // Batalkan seluruh transaksi jika gagal
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+
+    // Catat kesalahan ke log PHP
+    error_log(
+        'Gagal menambahkan siswa: ' . $e->getMessage()
+    );
+
+    create_siswa_redirect(
+        'danger',
+        'Data siswa gagal disimpan. Periksa kembali data dan koneksi database.'
+    );
+}

@@ -1,6 +1,7 @@
+
 <?php
 /**
- * Data Siswa
+ * Pengelolaan Data Siswa
  * SMART EDUCATION PAREPARE
  */
 
@@ -14,7 +15,7 @@ $current_page = 'siswa';
 $page_title = 'Pengelolaan Data Siswa';
 
 // ========================================
-// FUNGSI ESCAPE
+// FUNGSI BANTU
 // ========================================
 
 function siswa_e($value) {
@@ -26,6 +27,14 @@ function siswa_e($value) {
 }
 
 // ========================================
+// TOKEN CSRF
+// ========================================
+
+if (empty($_SESSION['csrf_siswa'])) {
+    $_SESSION['csrf_siswa'] = bin2hex(random_bytes(32));
+}
+
+// ========================================
 // PENCARIAN DAN FILTER
 // ========================================
 
@@ -33,43 +42,72 @@ $search = trim($_GET['search'] ?? '');
 $filter_paket = trim($_GET['paket'] ?? '');
 $filter_status = trim($_GET['status'] ?? '');
 
+$params = [];
+
 $sql = "
     SELECT
         s.*,
+        pd.id_pendaftaran,
+        pd.nomor_registrasi,
+        pd.tanggal_pendaftaran,
+        pd.jenis_program,
+        pd.pilihan_hari,
+        pd.pilihan_jam,
+        pd.id_paket,
         p.nama_paket,
-        p.harga
+        p.harga,
+        ot.nama_ayah,
+        ot.nama_ibu,
+        ot.nama_pemberi_informasi,
+        ot.alamat_rumah AS alamat_orang_tua,
+        ot.no_hp_ayah,
+        ot.no_hp_ibu
+
     FROM siswa s
+
+    LEFT JOIN pendaftaran pd
+        ON pd.id_pendaftaran = (
+            SELECT MAX(p2.id_pendaftaran)
+            FROM pendaftaran p2
+            WHERE p2.id_siswa = s.id_siswa
+        )
+
     LEFT JOIN paket_belajar p
-        ON s.id_paket = p.id_paket
+        ON p.id_paket = pd.id_paket
+
+    LEFT JOIN orang_tua ot
+        ON ot.id_siswa = s.id_siswa
+
     WHERE 1=1
 ";
-
-$params = [];
 
 if ($search !== '') {
     $sql .= "
         AND (
-            s.nama_siswa LIKE :search_nama
-            OR s.nis LIKE :search_nis
-            OR s.no_telepon LIKE :search_telepon
-            OR s.email LIKE :search_email
+            s.nama_lengkap LIKE :nama
+            OR s.sekolah_asal LIKE :sekolah
+            OR s.no_hp LIKE :hp
+            OR s.kelas LIKE :kelas
+            OR pd.nomor_registrasi LIKE :registrasi
         )
     ";
 
     $keyword = '%' . $search . '%';
 
-    $params[':search_nama'] = $keyword;
-    $params[':search_nis'] = $keyword;
-    $params[':search_telepon'] = $keyword;
-    $params[':search_email'] = $keyword;
+    $params[':nama'] = $keyword;
+    $params[':sekolah'] = $keyword;
+    $params[':hp'] = $keyword;
+    $params[':kelas'] = $keyword;
+    $params[':registrasi'] = $keyword;
 }
 
 if ($filter_paket !== '' && ctype_digit($filter_paket)) {
-    $sql .= " AND s.id_paket = :id_paket";
+    $sql .= " AND pd.id_paket = :id_paket";
     $params[':id_paket'] = (int)$filter_paket;
 }
 
-if (in_array($filter_status, ['Aktif', 'Alumni', 'Non-Aktif'], true)) {
+// FILTER STATUS SISWA
+if (in_array($filter_status, ['Aktif', 'Nonaktif'], true)) {
     $sql .= " AND s.status_siswa = :status_siswa";
     $params[':status_siswa'] = $filter_status;
 }
@@ -82,27 +120,19 @@ $stmt->execute($params);
 $siswa_list = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // ========================================
-// AMBIL DATA PAKET
+// AMBIL PAKET BELAJAR AKTIF
 // ========================================
 
 $paket_list = $pdo->query("
-    SELECT id_paket, nama_paket, harga
+    SELECT id_paket, nama_paket, jenjang, harga
     FROM paket_belajar
-    WHERE status = 'Aktif'
+    WHERE status = 'aktif'
     ORDER BY nama_paket ASC
 ")->fetchAll(PDO::FETCH_ASSOC);
 
 // ========================================
-// TOKEN CSRF UNTUK HAPUS
+// HEADER
 // ========================================
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-if (empty($_SESSION['csrf_siswa_delete'])) {
-    $_SESSION['csrf_siswa_delete'] = bin2hex(random_bytes(32));
-}
 
 require_once BASEPATH . '/includes/header.php';
 require_once BASEPATH . '/includes/sidebar.php';
@@ -110,17 +140,206 @@ require_once BASEPATH . '/includes/navbar.php';
 
 ?>
 
-<!-- HEADER HALAMAN -->
+<style>
+:root {
+    --siswa-primary: #98EDE1;
+    --siswa-primary-dark: #27877B;
+    --siswa-mint: #E8FDFF;
+    --siswa-text: #172B2A;
+    --siswa-border: #DCEAE8;
+}
+
+.text-dark-mint,
+.text-mint-deep {
+    color: #20483F !important;
+}
+
+.text-mint {
+    color: #27877B !important;
+}
+
+.text-mint-dark {
+    color: #27877B !important;
+}
+
+.badge-mint {
+    background: #DDF8F3;
+    color: #23776D;
+    border: 1px solid #BCE9E1;
+    padding: 6px 10px;
+    border-radius: 7px;
+}
+
+.stat-icon.mint {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--siswa-mint);
+    color: var(--siswa-primary-dark);
+    border-radius: 10px;
+}
+
+.page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 15px;
+    margin-bottom: 24px;
+}
+
+.btn-siswa-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 17px;
+    border: 1px solid #27877B !important;
+    border-radius: 9px !important;
+    background: #27877B !important;
+    color: #fff !important;
+    font-weight: 600;
+}
+
+.btn-siswa-primary:hover {
+    background: #206C63 !important;
+    color: #fff !important;
+}
+
+.btn-siswa-secondary {
+    border: 1px solid #D6DEE3 !important;
+    border-radius: 9px !important;
+    background: #F1F4F6 !important;
+    color: #47545D !important;
+    font-weight: 600;
+}
+
+.btn-siswa-danger {
+    border: 1px solid #C83D4D !important;
+    border-radius: 9px !important;
+    background: #C83D4D !important;
+    color: #fff !important;
+    font-weight: 600;
+}
+
+.siswa-modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #D9F0ED;
+    background: var(--siswa-mint);
+    color: #20483F;
+}
+
+.siswa-modal-header .modal-title {
+    font-weight: 700;
+    font-size: 1.1rem;
+}
+
+.siswa-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 9px;
+    padding: 14px 20px;
+    border-top: 1px solid #E7EEEA;
+}
+
+.modal-content {
+    overflow: hidden;
+    border: 0;
+    border-radius: 15px;
+    box-shadow: 0 15px 45px rgba(20,43,34,.15);
+}
+
+.modal-body {
+    padding: 20px;
+}
+
+.modal-body .form-label {
+    color: #30443A;
+    font-weight: 600;
+    font-size: .9rem;
+}
+
+.modal-body .form-control,
+.modal-body .form-select {
+    min-height: 42px;
+    border-radius: 8px;
+    border-color: #DCEAE8;
+}
+
+.modal-body .form-control:focus,
+.modal-body .form-select:focus {
+    border-color: #75CFC2;
+    box-shadow: 0 0 0 3px rgba(152,237,225,.25);
+}
+
+.btn-action-view,
+.btn-action-edit,
+.btn-action-delete {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 32px;
+    margin: 0 2px;
+    border-radius: 8px !important;
+    background: #fff !important;
+}
+
+.btn-action-view {
+    border: 1px solid #B7DCD7 !important;
+    color: #27877B !important;
+}
+
+.btn-action-edit {
+    border: 1px solid #BFD3EF !important;
+    color: #3975B9 !important;
+}
+
+.btn-action-delete {
+    border: 1px solid #F0C4C8 !important;
+    color: #C44755 !important;
+}
+
+.siswa-detail-label {
+    color: #71817D;
+    min-width: 125px;
+}
+
+.siswa-detail-value {
+    color: #172B2A;
+    font-weight: 600;
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 767px) {
+    .page-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .page-header .btn-add-siswa {
+        width: 100%;
+    }
+
+    .modal-body {
+        padding: 16px;
+    }
+}
+</style>
+
+<!-- =====================================
+     HEADER HALAMAN
+===================================== -->
 
 <div class="page-header">
 
     <div>
         <h1 class="h3 fw-bold text-dark-mint">
-            
+            Pengelolaan Data Siswa
         </h1>
 
         <p class="text-muted mb-0">
-            
+            Kelola informasi siswa dan pendaftaran Smart Education.
         </p>
     </div>
 
@@ -131,12 +350,14 @@ require_once BASEPATH . '/includes/navbar.php';
         data-bs-target="#modalTambahSiswa"
     >
         <i class="bi bi-plus-lg"></i>
-        <span>Tambah Siswa Baru</span>
+        Tambah Siswa Baru
     </button>
 
 </div>
 
-<!-- PENCARIAN DAN FILTER -->
+<!-- =====================================
+     PENCARIAN DAN FILTER
+===================================== -->
 
 <div class="card mb-4 border-0 shadow-sm">
 
@@ -145,9 +366,7 @@ require_once BASEPATH . '/includes/navbar.php';
         <form method="GET" action="" class="row g-2 align-items-center">
 
             <div class="col-md-5">
-
                 <div class="input-group">
-
                     <span class="input-group-text bg-white border-end-0">
                         <i class="bi bi-search text-muted"></i>
                     </span>
@@ -156,64 +375,37 @@ require_once BASEPATH . '/includes/navbar.php';
                         type="text"
                         name="search"
                         class="form-control border-start-0"
-                        placeholder="Cari nama, NIS, nomor HP, atau email..."
+                        placeholder="Cari nama, sekolah, kelas, nomor HP, atau registrasi..."
                         value="<?= siswa_e($search); ?>"
                     >
-
                 </div>
-
             </div>
 
             <div class="col-md-3">
-
                 <select name="paket" class="form-select">
-
                     <option value="">-- Semua Paket Belajar --</option>
 
                     <?php foreach ($paket_list as $pk): ?>
-
                         <option
-                            value="<?= siswa_e($pk['id_paket']); ?>"
+                            value="<?= (int)$pk['id_paket']; ?>"
                             <?= ($filter_paket == $pk['id_paket']) ? 'selected' : ''; ?>
                         >
                             <?= siswa_e($pk['nama_paket']); ?>
                         </option>
-
                     <?php endforeach; ?>
-
                 </select>
-
             </div>
 
             <div class="col-md-2">
-
                 <select name="status" class="form-select">
-
-                    <option value="">-- Status --</option>
-
-                    <option
-                        value="Aktif"
-                        <?= ($filter_status === 'Aktif') ? 'selected' : ''; ?>
-                    >
+                    <option value="">-- Semua Status --</option>
+                    <option value="Aktif" <?= $filter_status === 'Aktif' ? 'selected' : ''; ?>>
                         Aktif
                     </option>
-
-                    <option
-                        value="Alumni"
-                        <?= ($filter_status === 'Alumni') ? 'selected' : ''; ?>
-                    >
-                        Alumni
+                    <option value="Nonaktif" <?= $filter_status === 'Nonaktif' ? 'selected' : ''; ?>>
+                        Nonaktif
                     </option>
-
-                    <option
-                        value="Non-Aktif"
-                        <?= ($filter_status === 'Non-Aktif') ? 'selected' : ''; ?>
-                    >
-                        Non-Aktif
-                    </option>
-
                 </select>
-
             </div>
 
             <div class="col-md-2 d-flex gap-2">
@@ -224,7 +416,6 @@ require_once BASEPATH . '/includes/navbar.php';
                 </button>
 
                 <?php if ($search !== '' || $filter_paket !== '' || $filter_status !== ''): ?>
-
                     <a
                         href="<?= base_url('modules/siswa/index.php'); ?>"
                         class="btn btn-outline-secondary"
@@ -232,7 +423,6 @@ require_once BASEPATH . '/includes/navbar.php';
                     >
                         <i class="bi bi-arrow-counterclockwise"></i>
                     </a>
-
                 <?php endif; ?>
 
             </div>
@@ -243,21 +433,21 @@ require_once BASEPATH . '/includes/navbar.php';
 
 </div>
 
-<!-- TABEL DATA SISWA -->
+<!-- =====================================
+     TABEL DATA SISWA
+===================================== -->
 
 <div class="card shadow-sm border-0">
 
     <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
 
         <h5 class="card-title mb-0 fw-bold text-mint-deep">
-
             <i class="bi bi-people me-2 text-mint"></i>
             Daftar Siswa
 
             <span class="badge badge-mint ms-1">
                 <?= count($siswa_list); ?>
             </span>
-
         </h5>
 
     </div>
@@ -268,14 +458,14 @@ require_once BASEPATH . '/includes/navbar.php';
 
             <thead>
                 <tr>
-                    <th style="width: 50px;">No</th>
-                    <th>NIS</th>
+                    <th style="width:50px;">No</th>
                     <th>Nama Siswa</th>
-                    <th>Gender</th>
+                    <th>Sekolah Asal</th>
+                    <th>Kelas</th>
                     <th>Paket Belajar</th>
-                    <th>No. Telepon</th>
-                    <th>Status</th>
-                    <th class="text-center" style="width: 150px;">Aksi</th>
+                    <th>No. HP</th>
+                    <th class="text-center">Status</th>
+                    <th class="text-center" style="width:150px;">Aksi</th>
                 </tr>
             </thead>
 
@@ -301,91 +491,49 @@ require_once BASEPATH . '/includes/navbar.php';
                             <td><?= $no++; ?></td>
 
                             <td>
-                                <span class="badge bg-light text-dark border font-monospace">
-                                    <?= siswa_e($s['nis']); ?>
-                                </span>
-                            </td>
-
-                            <td>
                                 <div class="d-flex align-items-center gap-2">
-
                                     <div
                                         class="stat-icon mint mb-0"
-                                        style="width:32px;height:32px;font-size:0.9rem;"
+                                        style="width:35px;height:35px;"
                                     >
                                         <i class="bi bi-person-fill"></i>
                                     </div>
 
-                                    <div>
-                                        <strong class="text-dark">
-                                            <?= siswa_e($s['nama_siswa']); ?>
-                                        </strong>
-
-                                        <div class="small text-muted">
-                                            <?= siswa_e($s['email'] ?? '-'); ?>
-                                        </div>
-                                    </div>
-
+                                    <strong class="text-dark">
+                                        <?= siswa_e($s['nama_lengkap']); ?>
+                                    </strong>
                                 </div>
                             </td>
 
-                            <td>
+                            <td><?= siswa_e($s['sekolah_asal']); ?></td>
 
-                                <?php if ($s['jenis_kelamin'] === 'Laki-laki'): ?>
-
-                                    <span class="badge bg-info-subtle text-info-emphasis">L</span>
-                                    Laki-laki
-
-                                <?php else: ?>
-
-                                    <span class="badge bg-danger-subtle text-danger-emphasis">P</span>
-                                    Perempuan
-
-                                <?php endif; ?>
-
-                            </td>
+                            <td><?= siswa_e($s['kelas']); ?></td>
 
                             <td>
                                 <span class="fw-medium text-dark-mint">
-                                    <?= siswa_e($s['nama_paket'] ?? 'Belum Pilih Paket'); ?>
+                                    <?= siswa_e($s['nama_paket'] ?? 'Belum Terdaftar'); ?>
                                 </span>
 
                                 <?php if (!empty($s['harga'])): ?>
                                     <div class="small text-muted">
-                                        <?= format_rupiah($s['harga']); ?> / bln
+                                        <?= format_rupiah($s['harga']); ?> / bulan
                                     </div>
                                 <?php endif; ?>
                             </td>
 
-                            <td>
-                                <?= siswa_e($s['no_telepon'] ?? '-'); ?>
-                            </td>
+                            <td><?= siswa_e($s['no_hp']); ?></td>
 
-                            <td>
-
-                                <?php if ($s['status_siswa'] === 'Aktif'): ?>
-
-                                    <span class="badge badge-mint">Aktif</span>
-
-                                <?php elseif ($s['status_siswa'] === 'Alumni'): ?>
-
-                                    <span class="badge bg-primary-subtle text-primary">
-                                        Alumni
-                                    </span>
-
+                            <td class="text-center">
+                                <?php if (($s['status_siswa'] ?? 'Aktif') === 'Aktif'): ?>
+                                    <span class="badge bg-success">Aktif</span>
                                 <?php else: ?>
-
-                                    <span class="badge bg-secondary">
-                                        Non-Aktif
-                                    </span>
-
+                                    <span class="badge bg-secondary">Nonaktif</span>
                                 <?php endif; ?>
-
                             </td>
 
                             <td class="text-center">
 
-                                <div class="btn-group btn-group-sm" role="group">
+                                <div class="btn-group btn-group-sm">
 
                                     <button
                                         type="button"
@@ -407,15 +555,31 @@ require_once BASEPATH . '/includes/navbar.php';
                                         <i class="bi bi-pencil"></i>
                                     </button>
 
-                                    <button
-                                        type="button"
-                                        class="btn btn-action-delete"
-                                        data-bs-toggle="modal"
-                                        data-bs-target="#modalHapusSiswa<?= (int)$s['id_siswa']; ?>"
-                                        title="Hapus Siswa"
-                                    >
-                                        <i class="bi bi-trash"></i>
-                                    </button>
+                                    <?php if (($s['status_siswa'] ?? 'Aktif') === 'Aktif'): ?>
+
+                                        <button
+                                            type="button"
+                                            class="btn btn-action-delete"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#modalStatusSiswa<?= (int)$s['id_siswa']; ?>"
+                                            title="Nonaktifkan Siswa"
+                                        >
+                                            <i class="bi bi-person-x"></i>
+                                        </button>
+
+                                    <?php else: ?>
+
+                                        <button
+                                            type="button"
+                                            class="btn btn-action-view"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#modalStatusSiswa<?= (int)$s['id_siswa']; ?>"
+                                            title="Aktifkan Kembali"
+                                        >
+                                            <i class="bi bi-person-check"></i>
+                                        </button>
+
+                                    <?php endif; ?>
 
                                 </div>
 
@@ -435,7 +599,9 @@ require_once BASEPATH . '/includes/navbar.php';
 
 </div>
 
-<!-- MODAL DETAIL, EDIT, DAN HAPUS -->
+<!-- =====================================
+     MODAL DETAIL, EDIT, DAN STATUS
+===================================== -->
 
 <?php foreach ($siswa_list as $s): ?>
 
@@ -450,13 +616,13 @@ require_once BASEPATH . '/includes/navbar.php';
         aria-hidden="true"
     >
 
-        <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
 
             <div class="modal-content">
 
                 <div class="modal-header siswa-modal-header">
 
-                    <h5 class="modal-title fw-bold">
+                    <h5 class="modal-title">
                         <i class="bi bi-person-lines-fill me-2"></i>
                         Detail Siswa
                     </h5>
@@ -465,14 +631,13 @@ require_once BASEPATH . '/includes/navbar.php';
                         type="button"
                         class="btn-close"
                         data-bs-dismiss="modal"
-                        aria-label="Close"
                     ></button>
 
                 </div>
 
                 <div class="modal-body">
 
-                    <div class="text-center mb-3">
+                    <div class="text-center mb-4">
 
                         <div
                             class="stat-icon mint mx-auto mb-2"
@@ -481,57 +646,143 @@ require_once BASEPATH . '/includes/navbar.php';
                             <i class="bi bi-person"></i>
                         </div>
 
-                        <h5 class="fw-bold mb-0">
-                            <?= siswa_e($s['nama_siswa']); ?>
+                        <h5 class="fw-bold mb-1">
+                            <?= siswa_e($s['nama_lengkap']); ?>
                         </h5>
 
                         <span class="badge bg-light text-dark border">
-                            NIS: <?= siswa_e($s['nis']); ?>
+                            <?= siswa_e($s['nomor_registrasi'] ?? 'Belum terdaftar'); ?>
                         </span>
+
+                        <div class="mt-2">
+                            <?php if (($s['status_siswa'] ?? 'Aktif') === 'Aktif'): ?>
+                                <span class="badge bg-success">Aktif</span>
+                            <?php else: ?>
+                                <span class="badge bg-secondary">Nonaktif</span>
+                            <?php endif; ?>
+                        </div>
 
                     </div>
 
+                    <h6 class="fw-bold text-mint-deep mb-2">
+                        Data Siswa
+                    </h6>
+
+                    <ul class="list-group list-group-flush small mb-4">
+
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">Alamat Rumah</span>
+                            <span class="siswa-detail-value"><?= nl2br(siswa_e($s['alamat_rumah'])); ?></span>
+                        </li>
+
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">Sekolah Asal</span>
+                            <span class="siswa-detail-value"><?= siswa_e($s['sekolah_asal']); ?></span>
+                        </li>
+
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">Kelas</span>
+                            <span class="siswa-detail-value"><?= siswa_e($s['kelas']); ?></span>
+                        </li>
+
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">Agama</span>
+                            <span class="siswa-detail-value"><?= siswa_e($s['agama']); ?></span>
+                        </li>
+
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">Tempat Lahir</span>
+                            <span class="siswa-detail-value"><?= siswa_e($s['tempat_lahir']); ?></span>
+                        </li>
+
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">Tanggal Lahir</span>
+                            <span class="siswa-detail-value"><?= format_tanggal($s['tanggal_lahir']); ?></span>
+                        </li>
+
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">No. HP</span>
+                            <span class="siswa-detail-value"><?= siswa_e($s['no_hp']); ?></span>
+                        </li>
+
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">No. Rumah</span>
+                            <span class="siswa-detail-value"><?= siswa_e($s['no_rumah'] ?: '-'); ?></span>
+                        </li>
+
+                    </ul>
+
+                    <h6 class="fw-bold text-mint-deep mb-2">
+                        Data Orang Tua
+                    </h6>
+
+                    <ul class="list-group list-group-flush small mb-4">
+
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">Nama Ayah</span>
+                            <span class="siswa-detail-value"><?= siswa_e($s['nama_ayah'] ?? '-'); ?></span>
+                        </li>
+
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">Nama Ibu</span>
+                            <span class="siswa-detail-value"><?= siswa_e($s['nama_ibu'] ?? '-'); ?></span>
+                        </li>
+
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">Pemberi Informasi</span>
+                            <span class="siswa-detail-value"><?= siswa_e($s['nama_pemberi_informasi'] ?? '-'); ?></span>
+                        </li>
+
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">No. HP Ayah</span>
+                            <span class="siswa-detail-value"><?= siswa_e($s['no_hp_ayah'] ?? '-'); ?></span>
+                        </li>
+
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">No. HP Ibu</span>
+                            <span class="siswa-detail-value"><?= siswa_e($s['no_hp_ibu'] ?? '-'); ?></span>
+                        </li>
+
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">Alamat Orang Tua</span>
+                            <span class="siswa-detail-value"><?= nl2br(siswa_e($s['alamat_orang_tua'] ?? '-')); ?></span>
+                        </li>
+
+                    </ul>
+
+                    <h6 class="fw-bold text-mint-deep mb-2">
+                        Data Pendaftaran
+                    </h6>
+
                     <ul class="list-group list-group-flush small">
 
-                        <li class="list-group-item d-flex justify-content-between">
-                            <span class="text-muted">Jenis Kelamin:</span>
-                            <strong><?= siswa_e($s['jenis_kelamin']); ?></strong>
-                        </li>
-
-                        <li class="list-group-item d-flex justify-content-between">
-                            <span class="text-muted">Paket Belajar:</span>
-                            <strong class="text-mint-dark">
-                                <?= siswa_e($s['nama_paket'] ?? '-'); ?>
-                            </strong>
-                        </li>
-
-                        <li class="list-group-item d-flex justify-content-between">
-                            <span class="text-muted">Nomor HP:</span>
-                            <strong><?= siswa_e($s['no_telepon'] ?? '-'); ?></strong>
-                        </li>
-
-                        <li class="list-group-item d-flex justify-content-between">
-                            <span class="text-muted">Email:</span>
-                            <strong><?= siswa_e($s['email'] ?? '-'); ?></strong>
-                        </li>
-
-                        <li class="list-group-item d-flex justify-content-between">
-                            <span class="text-muted">Alamat:</span>
-                            <span class="text-end fw-medium">
-                                <?= nl2br(siswa_e($s['alamat'] ?? '-')); ?>
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">Tanggal Daftar</span>
+                            <span class="siswa-detail-value">
+                                <?= !empty($s['tanggal_pendaftaran']) ? format_tanggal($s['tanggal_pendaftaran']) : '-'; ?>
                             </span>
                         </li>
 
-                        <li class="list-group-item d-flex justify-content-between">
-                            <span class="text-muted">Tanggal Pendaftaran:</span>
-                            <strong>
-                                <?= format_tanggal($s['tanggal_daftar']); ?>
-                            </strong>
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">Paket Belajar</span>
+                            <span class="siswa-detail-value"><?= siswa_e($s['nama_paket'] ?? '-'); ?></span>
                         </li>
 
-                        <li class="list-group-item d-flex justify-content-between">
-                            <span class="text-muted">Status:</span>
-                            <strong><?= siswa_e($s['status_siswa']); ?></strong>
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">Program</span>
+                            <span class="siswa-detail-value"><?= siswa_e($s['jenis_program'] ?? '-'); ?></span>
+                        </li>
+
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">Pilihan Hari</span>
+                            <span class="siswa-detail-value"><?= siswa_e($s['pilihan_hari'] ?? '-'); ?></span>
+                        </li>
+
+                        <li class="list-group-item d-flex justify-content-between gap-3">
+                            <span class="siswa-detail-label">Pilihan Jam</span>
+                            <span class="siswa-detail-value">
+                                <?= !empty($s['pilihan_jam']) ? date('H:i', strtotime($s['pilihan_jam'])) : '-'; ?>
+                            </span>
                         </li>
 
                     </ul>
@@ -542,7 +793,7 @@ require_once BASEPATH . '/includes/navbar.php';
 
                     <button
                         type="button"
-                        class="btn btn-siswa-secondary btn-sm"
+                        class="btn btn-siswa-secondary"
                         data-bs-dismiss="modal"
                     >
                         Tutup
@@ -574,15 +825,17 @@ require_once BASEPATH . '/includes/navbar.php';
                     method="POST"
                 >
 
+                    <input type="hidden" name="id_siswa" value="<?= $id; ?>">
+
                     <input
                         type="hidden"
-                        name="id_siswa"
-                        value="<?= $id; ?>"
+                        name="csrf_token"
+                        value="<?= siswa_e($_SESSION['csrf_siswa']); ?>"
                     >
 
                     <div class="modal-header siswa-modal-header">
 
-                        <h5 class="modal-title fw-bold">
+                        <h5 class="modal-title">
                             <i class="bi bi-pencil-square me-2"></i>
                             Edit Data Siswa
                         </h5>
@@ -597,179 +850,262 @@ require_once BASEPATH . '/includes/navbar.php';
 
                     <div class="modal-body">
 
+                        <h6 class="fw-bold text-mint-deep mb-3">
+                            Data Siswa
+                        </h6>
+
                         <div class="row g-3">
 
                             <div class="col-md-6">
-
-                                <label class="form-label">
-                                    NIS <span class="text-danger">*</span>
-                                </label>
-
+                                <label class="form-label">Nama Lengkap</label>
                                 <input
                                     type="text"
-                                    name="nis"
+                                    name="nama_lengkap"
                                     class="form-control"
-                                    maxlength="20"
-                                    value="<?= siswa_e($s['nis']); ?>"
+                                    maxlength="150"
+                                    value="<?= siswa_e($s['nama_lengkap']); ?>"
                                     required
                                 >
-
                             </div>
 
                             <div class="col-md-6">
-
-                                <label class="form-label">
-                                    Nama Lengkap Siswa <span class="text-danger">*</span>
-                                </label>
-
+                                <label class="form-label">Sekolah Asal</label>
                                 <input
                                     type="text"
-                                    name="nama_siswa"
+                                    name="sekolah_asal"
+                                    class="form-control"
+                                    maxlength="150"
+                                    value="<?= siswa_e($s['sekolah_asal']); ?>"
+                                    required
+                                >
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label">Kelas</label>
+                                <input
+                                    type="text"
+                                    name="kelas"
+                                    class="form-control"
+                                    maxlength="30"
+                                    value="<?= siswa_e($s['kelas']); ?>"
+                                    required
+                                >
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label">Agama</label>
+                                <input
+                                    type="text"
+                                    name="agama"
+                                    class="form-control"
+                                    maxlength="30"
+                                    value="<?= siswa_e($s['agama']); ?>"
+                                    required
+                                >
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label">Tempat Lahir</label>
+                                <input
+                                    type="text"
+                                    name="tempat_lahir"
                                     class="form-control"
                                     maxlength="100"
-                                    value="<?= siswa_e($s['nama_siswa']); ?>"
+                                    value="<?= siswa_e($s['tempat_lahir']); ?>"
                                     required
                                 >
-
                             </div>
 
                             <div class="col-md-6">
-
-                                <label class="form-label">
-                                    Jenis Kelamin <span class="text-danger">*</span>
-                                </label>
-
-                                <select
-                                    name="jenis_kelamin"
-                                    class="form-select"
+                                <label class="form-label">Tanggal Lahir</label>
+                                <input
+                                    type="date"
+                                    name="tanggal_lahir"
+                                    class="form-control"
+                                    value="<?= siswa_e($s['tanggal_lahir']); ?>"
                                     required
                                 >
-
-                                    <option
-                                        value="Laki-laki"
-                                        <?= ($s['jenis_kelamin'] === 'Laki-laki') ? 'selected' : ''; ?>
-                                    >
-                                        Laki-laki
-                                    </option>
-
-                                    <option
-                                        value="Perempuan"
-                                        <?= ($s['jenis_kelamin'] === 'Perempuan') ? 'selected' : ''; ?>
-                                    >
-                                        Perempuan
-                                    </option>
-
-                                </select>
-
                             </div>
 
                             <div class="col-md-6">
+                                <label class="form-label">No. HP</label>
+                                <input
+                                    type="text"
+                                    name="no_hp"
+                                    class="form-control"
+                                    maxlength="20"
+                                    value="<?= siswa_e($s['no_hp']); ?>"
+                                    required
+                                >
+                            </div>
 
+                            <div class="col-md-6">
+                                <label class="form-label">No. Rumah</label>
+                                <input
+                                    type="text"
+                                    name="no_rumah"
+                                    class="form-control"
+                                    maxlength="20"
+                                    value="<?= siswa_e($s['no_rumah'] ?? ''); ?>"
+                                >
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label">Alamat Rumah</label>
+                                <textarea
+                                    name="alamat_rumah"
+                                    class="form-control"
+                                    rows="2"
+                                    required
+                                ><?= siswa_e($s['alamat_rumah']); ?></textarea>
+                            </div>
+
+                        </div>
+
+                        <hr>
+
+                        <h6 class="fw-bold text-mint-deep mb-3">
+                            Data Orang Tua
+                        </h6>
+
+                        <div class="row g-3">
+
+                            <div class="col-md-6">
+                                <label class="form-label">Nama Ayah</label>
+                                <input
+                                    type="text"
+                                    name="nama_ayah"
+                                    class="form-control"
+                                    value="<?= siswa_e($s['nama_ayah'] ?? ''); ?>"
+                                    required
+                                >
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label">Nama Ibu</label>
+                                <input
+                                    type="text"
+                                    name="nama_ibu"
+                                    class="form-control"
+                                    value="<?= siswa_e($s['nama_ibu'] ?? ''); ?>"
+                                    required
+                                >
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label">Nama Pemberi Informasi</label>
+                                <input
+                                    type="text"
+                                    name="nama_pemberi_informasi"
+                                    class="form-control"
+                                    value="<?= siswa_e($s['nama_pemberi_informasi'] ?? ''); ?>"
+                                    required
+                                >
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label">No. HP Ayah</label>
+                                <input
+                                    type="text"
+                                    name="no_hp_ayah"
+                                    class="form-control"
+                                    maxlength="20"
+                                    value="<?= siswa_e($s['no_hp_ayah'] ?? ''); ?>"
+                                    required
+                                >
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label">No. HP Ibu</label>
+                                <input
+                                    type="text"
+                                    name="no_hp_ibu"
+                                    class="form-control"
+                                    maxlength="20"
+                                    value="<?= siswa_e($s['no_hp_ibu'] ?? ''); ?>"
+                                    required
+                                >
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label">Alamat Rumah Orang Tua</label>
+                                <textarea
+                                    name="alamat_orang_tua"
+                                    class="form-control"
+                                    rows="2"
+                                    required
+                                ><?= siswa_e($s['alamat_orang_tua'] ?? ''); ?></textarea>
+                            </div>
+
+                        </div>
+
+                        <hr>
+
+                        <h6 class="fw-bold text-mint-deep mb-3">
+                            Data Pendaftaran
+                        </h6>
+
+                        <div class="row g-3">
+
+                            <div class="col-md-6">
+                                <label class="form-label">Tanggal Pendaftaran</label>
+                                <input
+                                    type="date"
+                                    name="tanggal_pendaftaran"
+                                    class="form-control"
+                                    value="<?= siswa_e($s['tanggal_pendaftaran'] ?? date('Y-m-d')); ?>"
+                                >
+                            </div>
+
+                            <div class="col-md-6">
                                 <label class="form-label">Paket Belajar</label>
-
                                 <select name="id_paket" class="form-select">
-
-                                    <option value="">-- Pilih Paket Belajar --</option>
+                                    <option value="">-- Pilih Paket --</option>
 
                                     <?php foreach ($paket_list as $pk): ?>
-
                                         <option
-                                            value="<?= siswa_e($pk['id_paket']); ?>"
-                                            <?= ($s['id_paket'] == $pk['id_paket']) ? 'selected' : ''; ?>
+                                            value="<?= (int)$pk['id_paket']; ?>"
+                                            <?= ((string)($s['id_paket'] ?? '') === (string)$pk['id_paket']) ? 'selected' : ''; ?>
                                         >
                                             <?= siswa_e($pk['nama_paket']); ?>
                                             (<?= format_rupiah($pk['harga']); ?>)
                                         </option>
-
                                     <?php endforeach; ?>
 
                                 </select>
-
                             </div>
 
                             <div class="col-md-6">
+                                <label class="form-label">Jenis Program</label>
+                                <select name="jenis_program" class="form-select">
+                                    <option value="Reguler" <?= ($s['jenis_program'] ?? '') === 'Reguler' ? 'selected' : ''; ?>>
+                                        Reguler
+                                    </option>
+                                    <option value="Privat" <?= ($s['jenis_program'] ?? '') === 'Privat' ? 'selected' : ''; ?>>
+                                        Privat
+                                    </option>
+                                </select>
+                            </div>
 
-                                <label class="form-label">No. Telepon / WhatsApp</label>
-
+                            <div class="col-md-6">
+                                <label class="form-label">Pilihan Hari Belajar</label>
                                 <input
                                     type="text"
-                                    name="no_telepon"
+                                    name="pilihan_hari"
                                     class="form-control"
-                                    maxlength="20"
-                                    value="<?= siswa_e($s['no_telepon'] ?? ''); ?>"
+                                    placeholder="Contoh: Senin, Rabu, Jumat"
+                                    value="<?= siswa_e($s['pilihan_hari'] ?? ''); ?>"
                                 >
-
                             </div>
 
                             <div class="col-md-6">
-
-                                <label class="form-label">Email</label>
-
+                                <label class="form-label">Pilihan Jam Belajar</label>
                                 <input
-                                    type="email"
-                                    name="email"
+                                    type="time"
+                                    name="pilihan_jam"
                                     class="form-control"
-                                    maxlength="100"
-                                    value="<?= siswa_e($s['email'] ?? ''); ?>"
+                                    value="<?= siswa_e($s['pilihan_jam'] ?? ''); ?>"
                                 >
-
-                            </div>
-
-                            <div class="col-md-6">
-
-                                <label class="form-label">Status Siswa</label>
-
-                                <select name="status_siswa" class="form-select">
-
-                                    <option
-                                        value="Aktif"
-                                        <?= ($s['status_siswa'] === 'Aktif') ? 'selected' : ''; ?>
-                                    >
-                                        Aktif
-                                    </option>
-
-                                    <option
-                                        value="Alumni"
-                                        <?= ($s['status_siswa'] === 'Alumni') ? 'selected' : ''; ?>
-                                    >
-                                        Alumni
-                                    </option>
-
-                                    <option
-                                        value="Non-Aktif"
-                                        <?= ($s['status_siswa'] === 'Non-Aktif') ? 'selected' : ''; ?>
-                                    >
-                                        Non-Aktif
-                                    </option>
-
-                                </select>
-
-                            </div>
-
-                            <div class="col-md-6">
-
-                                <label class="form-label">Tanggal Pendaftaran</label>
-
-                                <input
-                                    type="date"
-                                    name="tanggal_daftar"
-                                    class="form-control"
-                                    value="<?= siswa_e($s['tanggal_daftar']); ?>"
-                                    required
-                                >
-
-                            </div>
-
-                            <div class="col-12">
-
-                                <label class="form-label">Alamat Lengkap</label>
-
-                                <textarea
-                                    name="alamat"
-                                    class="form-control"
-                                    rows="2"
-                                ><?= siswa_e($s['alamat'] ?? ''); ?></textarea>
-
                             </div>
 
                         </div>
@@ -787,7 +1123,7 @@ require_once BASEPATH . '/includes/navbar.php';
                         </button>
 
                         <button type="submit" class="btn btn-siswa-primary">
-                            <i class="bi bi-save me-1"></i>
+                            <i class="bi bi-save"></i>
                             Simpan Perubahan
                         </button>
 
@@ -801,11 +1137,13 @@ require_once BASEPATH . '/includes/navbar.php';
 
     </div>
 
-    <!-- MODAL HAPUS -->
+    <!-- MODAL UBAH STATUS SISWA -->
+
+    <?php $isAktif = (($s['status_siswa'] ?? 'Aktif') === 'Aktif'); ?>
 
     <div
         class="modal fade"
-        id="modalHapusSiswa<?= $id; ?>"
+        id="modalStatusSiswa<?= $id; ?>"
         tabindex="-1"
         aria-hidden="true"
     >
@@ -815,27 +1153,36 @@ require_once BASEPATH . '/includes/navbar.php';
             <div class="modal-content">
 
                 <form
-                    action="<?= base_url('modules/siswa/delete.php'); ?>"
+                    action="<?= base_url('modules/siswa/status.php'); ?>"
                     method="POST"
                 >
 
-                    <input
-                        type="hidden"
-                        name="id_siswa"
-                        value="<?= $id; ?>"
-                    >
+                    <input type="hidden" name="id_siswa" value="<?= $id; ?>">
 
                     <input
                         type="hidden"
                         name="csrf_token"
-                        value="<?= siswa_e($_SESSION['csrf_siswa_delete']); ?>"
+                        value="<?= siswa_e($_SESSION['csrf_siswa']); ?>"
+                    >
+
+                    <input
+                        type="hidden"
+                        name="aksi"
+                        value="<?= $isAktif ? 'nonaktifkan' : 'aktifkan'; ?>"
                     >
 
                     <div class="modal-header siswa-modal-header">
 
-                        <h5 class="modal-title fw-bold text-danger">
-                            <i class="bi bi-exclamation-triangle me-2"></i>
-                            Konfirmasi Penghapusan
+                        <h5 class="modal-title">
+
+                            <?php if ($isAktif): ?>
+                                <i class="bi bi-person-x me-2 text-danger"></i>
+                                Nonaktifkan Siswa
+                            <?php else: ?>
+                                <i class="bi bi-person-check me-2 text-success"></i>
+                                Aktifkan Kembali Siswa
+                            <?php endif; ?>
+
                         </h5>
 
                         <button
@@ -848,22 +1195,47 @@ require_once BASEPATH . '/includes/navbar.php';
 
                     <div class="modal-body">
 
-                        Apakah kamu yakin ingin menghapus data siswa:
+                        <?php if ($isAktif): ?>
+                            Apakah kamu yakin ingin menonaktifkan siswa ini?
+                        <?php else: ?>
+                            Apakah kamu yakin ingin mengaktifkan kembali siswa ini?
+                        <?php endif; ?>
 
-                        <div class="mt-2 p-3 bg-light rounded">
+                        <div class="mt-3 p-3 rounded bg-light">
 
-                            <strong><?= siswa_e($s['nama_siswa']); ?></strong>
+                            <strong>
+                                <?= siswa_e($s['nama_lengkap']); ?>
+                            </strong>
 
                             <div class="small text-muted">
-                                NIS: <?= siswa_e($s['nis']); ?>
+                                <?= siswa_e($s['sekolah_asal']); ?>
+                            </div>
+
+                            <div class="mt-2">
+
+                                Status saat ini:
+
+                                <?php if ($isAktif): ?>
+                                    <span class="badge bg-success">Aktif</span>
+                                <?php else: ?>
+                                    <span class="badge bg-secondary">Nonaktif</span>
+                                <?php endif; ?>
+
                             </div>
 
                         </div>
 
                         <p class="small text-muted mt-3 mb-0">
-                            Jika siswa memiliki riwayat pembayaran atau kelas,
-                            sistem akan mempertahankan datanya dan mengubah
-                            status menjadi Non-Aktif.
+
+                            <?php if ($isAktif): ?>
+                                Data siswa, riwayat pendaftaran, dan pembayaran
+                                tetap tersimpan. Siswa hanya akan diubah
+                                statusnya menjadi Nonaktif.
+                            <?php else: ?>
+                                Status siswa akan dikembalikan menjadi Aktif.
+                                Data dan riwayat sebelumnya tetap tersimpan.
+                            <?php endif; ?>
+
                         </p>
 
                     </div>
@@ -878,10 +1250,21 @@ require_once BASEPATH . '/includes/navbar.php';
                             Batal
                         </button>
 
-                        <button type="submit" class="btn btn-siswa-danger">
-                            <i class="bi bi-trash me-1"></i>
-                            Ya, Lanjutkan
-                        </button>
+                        <?php if ($isAktif): ?>
+
+                            <button type="submit" class="btn btn-siswa-danger">
+                                <i class="bi bi-person-x me-1"></i>
+                                Ya, Nonaktifkan
+                            </button>
+
+                        <?php else: ?>
+
+                            <button type="submit" class="btn btn-success">
+                                <i class="bi bi-person-check me-1"></i>
+                                Ya, Aktifkan
+                            </button>
+
+                        <?php endif; ?>
 
                     </div>
 
@@ -895,7 +1278,9 @@ require_once BASEPATH . '/includes/navbar.php';
 
 <?php endforeach; ?>
 
-<!-- MODAL TAMBAH SISWA -->
+<!-- =====================================
+     MODAL TAMBAH SISWA
+===================================== -->
 
 <div
     class="modal fade"
@@ -913,9 +1298,15 @@ require_once BASEPATH . '/includes/navbar.php';
                 method="POST"
             >
 
+                <input
+                    type="hidden"
+                    name="csrf_token"
+                    value="<?= siswa_e($_SESSION['csrf_siswa']); ?>"
+                >
+
                 <div class="modal-header siswa-modal-header">
 
-                    <h5 class="modal-title fw-bold">
+                    <h5 class="modal-title">
                         <i class="bi bi-person-plus-fill me-2"></i>
                         Tambah Siswa Baru
                     </h5>
@@ -930,174 +1321,246 @@ require_once BASEPATH . '/includes/navbar.php';
 
                 <div class="modal-body">
 
+                    <h6 class="fw-bold text-mint-deep mb-3">
+                        Data Siswa
+                    </h6>
+
                     <div class="row g-3">
 
                         <div class="col-md-6">
-
-                            <label class="form-label">
-                                NIS <span class="text-danger">*</span>
-                            </label>
-
+                            <label class="form-label">Nama Lengkap</label>
                             <input
                                 type="text"
-                                name="nis"
+                                name="nama_lengkap"
                                 class="form-control"
-                                maxlength="20"
-                                placeholder="Contoh: 2026011"
+                                maxlength="150"
                                 required
                             >
-
                         </div>
 
                         <div class="col-md-6">
-
-                            <label class="form-label">
-                                Nama Lengkap Siswa <span class="text-danger">*</span>
-                            </label>
-
+                            <label class="form-label">Sekolah Asal</label>
                             <input
                                 type="text"
-                                name="nama_siswa"
+                                name="sekolah_asal"
+                                class="form-control"
+                                maxlength="150"
+                                required
+                            >
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Kelas</label>
+                            <input
+                                type="text"
+                                name="kelas"
+                                class="form-control"
+                                maxlength="30"
+                                placeholder="Contoh: Kelas 5 SD"
+                                required
+                            >
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Agama</label>
+                            <input
+                                type="text"
+                                name="agama"
+                                class="form-control"
+                                maxlength="30"
+                                required
+                            >
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Tempat Lahir</label>
+                            <input
+                                type="text"
+                                name="tempat_lahir"
                                 class="form-control"
                                 maxlength="100"
-                                placeholder="Masukkan nama siswa"
                                 required
                             >
-
                         </div>
 
                         <div class="col-md-6">
-
-                            <label class="form-label">
-                                Jenis Kelamin <span class="text-danger">*</span>
-                            </label>
-
-                            <select
-                                name="jenis_kelamin"
-                                class="form-select"
-                                required
-                            >
-                                <option value="Laki-laki">Laki-laki</option>
-                                <option value="Perempuan">Perempuan</option>
-                            </select>
-
-                        </div>
-
-                        <div class="col-md-6">
-
-                            <label class="form-label">Paket Belajar</label>
-
-                            <select name="id_paket" class="form-select">
-
-                                <option value="">-- Pilih Paket Belajar --</option>
-
-                                <?php foreach ($paket_list as $pk): ?>
-
-                                    <option value="<?= siswa_e($pk['id_paket']); ?>">
-                                        <?= siswa_e($pk['nama_paket']); ?>
-                                        (<?= format_rupiah($pk['harga']); ?>)
-                                    </option>
-
-                                <?php endforeach; ?>
-
-                            </select>
-
-                        </div>
-
-                        <div class="col-md-6">
-
-                            <label class="form-label">No. Telepon / WhatsApp</label>
-
-                            <input
-                                type="text"
-                                name="no_telepon"
-                                class="form-control"
-                                maxlength="20"
-                                placeholder="0812-xxxx-xxxx"
-                            >
-
-                        </div>
-
-                        <div class="col-md-6">
-
-                            <label class="form-label">Email</label>
-
-                            <input
-                                type="email"
-                                name="email"
-                                class="form-control"
-                                maxlength="100"
-                                placeholder="siswa@email.com"
-                            >
-
-                        </div>
-
-                        <div class="col-md-6">
-
-                            <label class="form-label">Tanggal Pendaftaran</label>
-
+                            <label class="form-label">Tanggal Lahir</label>
                             <input
                                 type="date"
-                                name="tanggal_daftar"
+                                name="tanggal_lahir"
+                                class="form-control"
+                                required
+                            >
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">No. HP</label>
+                            <input
+                                type="text"
+                                name="no_hp"
+                                class="form-control"
+                                maxlength="20"
+                                required
+                            >
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">No. Rumah</label>
+                            <input
+                                type="text"
+                                name="no_rumah"
+                                class="form-control"
+                                maxlength="20"
+                            >
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">Alamat Rumah</label>
+                            <textarea
+                                name="alamat_rumah"
+                                class="form-control"
+                                rows="2"
+                                required
+                            ></textarea>
+                        </div>
+
+                    </div>
+
+                    <hr>
+
+                    <h6 class="fw-bold text-mint-deep mb-3">
+                        Data Orang Tua
+                    </h6>
+
+                    <div class="row g-3">
+
+                        <div class="col-md-6">
+                            <label class="form-label">Nama Ayah</label>
+                            <input
+                                type="text"
+                                name="nama_ayah"
+                                class="form-control"
+                                required
+                            >
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Nama Ibu</label>
+                            <input
+                                type="text"
+                                name="nama_ibu"
+                                class="form-control"
+                                required
+                            >
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Nama Pemberi Informasi</label>
+                            <input
+                                type="text"
+                                name="nama_pemberi_informasi"
+                                class="form-control"
+                                required
+                            >
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">No. HP Ayah</label>
+                            <input
+                                type="text"
+                                name="no_hp_ayah"
+                                class="form-control"
+                                maxlength="20"
+                                required
+                            >
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">No. HP Ibu</label>
+                            <input
+                                type="text"
+                                name="no_hp_ibu"
+                                class="form-control"
+                                maxlength="20"
+                                required
+                            >
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">Alamat Rumah Orang Tua</label>
+                            <textarea
+                                name="alamat_orang_tua"
+                                class="form-control"
+                                rows="2"
+                                required
+                            ></textarea>
+                        </div>
+
+                    </div>
+
+                    <hr>
+
+                    <h6 class="fw-bold text-mint-deep mb-3">
+                        Data Pendaftaran
+                    </h6>
+
+                    <div class="row g-3">
+
+                        <div class="col-md-6">
+                            <label class="form-label">Tanggal Pendaftaran</label>
+                            <input
+                                type="date"
+                                name="tanggal_pendaftaran"
                                 class="form-control"
                                 value="<?= date('Y-m-d'); ?>"
                                 required
                             >
-
                         </div>
 
                         <div class="col-md-6">
+                            <label class="form-label">Paket Belajar</label>
+                            <select name="id_paket" class="form-select" required>
 
-                            <label class="form-label">Status Siswa</label>
+                                <option value="">-- Pilih Paket Belajar --</option>
 
-                            <select name="status_siswa" class="form-select">
-                                <option value="Aktif" selected>Aktif</option>
-                                <option value="Alumni">Alumni</option>
-                                <option value="Non-Aktif">Non-Aktif</option>
+                                <?php foreach ($paket_list as $pk): ?>
+                                    <option value="<?= (int)$pk['id_paket']; ?>">
+                                        <?= siswa_e($pk['nama_paket']); ?>
+                                        (<?= format_rupiah($pk['harga']); ?>)
+                                    </option>
+                                <?php endforeach; ?>
+
                             </select>
-
                         </div>
 
-                        <div class="col-12">
+                        <div class="col-md-6">
+                            <label class="form-label">Jenis Program</label>
+                            <select name="jenis_program" class="form-select" required>
+                                <option value="">-- Pilih Program --</option>
+                                <option value="Reguler">Reguler</option>
+                                <option value="Privat">Privat</option>
+                            </select>
+                        </div>
 
-                            <label class="form-label">Alamat Lengkap</label>
-
-                            <textarea
-                                name="alamat"
+                        <div class="col-md-6">
+                            <label class="form-label">Pilihan Hari Belajar</label>
+                            <input
+                                type="text"
+                                name="pilihan_hari"
                                 class="form-control"
-                                rows="2"
-                                placeholder="Masukkan alamat siswa"
-                            ></textarea>
-
+                                placeholder="Contoh: Senin, Rabu, Jumat"
+                                required
+                            >
                         </div>
 
-                        <div class="col-12">
-
-                            <div class="form-check p-3 bg-light rounded border">
-
-                                <input
-                                    class="form-check-input"
-                                    type="checkbox"
-                                    name="buat_akun"
-                                    id="buat_akun"
-                                    value="1"
-                                    checked
-                                >
-
-                                <label
-                                    class="form-check-label fw-medium text-dark"
-                                    for="buat_akun"
-                                >
-                                    Buatkan Akun Login Siswa Secara Otomatis
-                                </label>
-
-                                <div class="form-text">
-                                    Username menggunakan NIS.
-                                    Password awal: <code>siswa123</code>.
-                                </div>
-
-                            </div>
-
+                        <div class="col-md-6">
+                            <label class="form-label">Pilihan Jam Belajar</label>
+                            <input
+                                type="time"
+                                name="pilihan_jam"
+                                class="form-control"
+                                required
+                            >
                         </div>
 
                     </div>
@@ -1115,7 +1578,7 @@ require_once BASEPATH . '/includes/navbar.php';
                     </button>
 
                     <button type="submit" class="btn btn-siswa-primary">
-                        <i class="bi bi-check-circle me-1"></i>
+                        <i class="bi bi-save"></i>
                         Simpan Data Siswa
                     </button>
 
@@ -1128,321 +1591,5 @@ require_once BASEPATH . '/includes/navbar.php';
     </div>
 
 </div>
-
-<style>
-/* =====================================================
-   SMART EDUCATION - DATA SISWA
-===================================================== */
-
-:root {
-    --siswa-primary: #246B4B;
-    --siswa-primary-hover: #194F37;
-    --siswa-mint: #E8FDFF;
-    --siswa-border: #DCEBE4;
-    --siswa-text: #26372E;
-}
-
-/* HEADER HALAMAN */
-
-.page-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    margin-bottom: 22px;
-}
-
-.page-header h1 {
-    color: var(--siswa-text);
-    letter-spacing: -.35px;
-}
-
-/* TOMBOL UTAMA */
-
-.btn-siswa-primary,
-.btn-add-siswa {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    min-height: 42px;
-    padding: 10px 18px;
-    border: 1px solid var(--siswa-primary) !important;
-    border-radius: 10px !important;
-    background: var(--siswa-primary) !important;
-    color: #fff !important;
-    font-weight: 600;
-    box-shadow: 0 4px 10px rgba(36,107,75,.13);
-    transition: background .18s ease, transform .18s ease, box-shadow .18s ease;
-}
-
-.btn-siswa-primary:hover,
-.btn-add-siswa:hover {
-    background: var(--siswa-primary-hover) !important;
-    border-color: var(--siswa-primary-hover) !important;
-    color: #fff !important;
-    transform: translateY(-1px);
-    box-shadow: 0 6px 14px rgba(36,107,75,.2);
-}
-
-.btn-siswa-primary:focus-visible,
-.btn-siswa-secondary:focus-visible,
-.btn-siswa-danger:focus-visible {
-    outline: 3px solid rgba(36,107,75,.2);
-    outline-offset: 2px;
-}
-
-/* TOMBOL SEKUNDER */
-
-.btn-siswa-secondary {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    min-height: 40px;
-    padding: 9px 17px;
-    border: 1px solid #D6DEE3 !important;
-    border-radius: 9px !important;
-    background: #F1F4F6 !important;
-    color: #47545D !important;
-    font-weight: 600;
-}
-
-.btn-siswa-secondary:hover {
-    background: #E2E8EC !important;
-    color: #263238 !important;
-}
-
-/* TOMBOL HAPUS */
-
-.btn-siswa-danger {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    min-height: 40px;
-    padding: 9px 17px;
-    border: 1px solid #C83D4D !important;
-    border-radius: 9px !important;
-    background: #C83D4D !important;
-    color: #fff !important;
-    font-weight: 600;
-}
-
-.btn-siswa-danger:hover {
-    background: #A92D3B !important;
-    color: #fff !important;
-}
-
-/* MODAL */
-
-#modalTambahSiswa .modal-dialog,
-[id^="modalEditSiswa"] .modal-dialog {
-    max-width: 820px;
-}
-
-.modal-content {
-    overflow: hidden;
-    border: 0 !important;
-    border-radius: 17px !important;
-    box-shadow: 0 18px 55px rgba(20,43,34,.2);
-}
-
-/* HEADER MODAL */
-
-.siswa-modal-header {
-    min-height: 62px;
-    padding: 16px 20px !important;
-    border-bottom: 1px solid #D9F0ED !important;
-    background: var(--siswa-mint) !important;
-    color: #20483F;
-}
-
-.siswa-modal-header .modal-title {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-    color: #20483F;
-    font-size: 1.15rem;
-    font-weight: 750 !important;
-}
-
-.siswa-modal-header .modal-title i {
-    font-size: 1.15rem;
-}
-
-.siswa-modal-header .btn-close {
-    opacity: .65;
-}
-
-.siswa-modal-header .btn-close:hover {
-    opacity: 1;
-}
-
-/* FORM MODAL */
-
-.modal-body {
-    padding: 21px 20px !important;
-}
-
-.modal-body .form-label {
-    display: block;
-    margin-bottom: 7px;
-    color: #29483E;
-    font-size: .86rem;
-    font-weight: 650;
-}
-
-.modal-body .form-control,
-.modal-body .form-select {
-    min-height: 41px;
-    padding: 9px 12px;
-    border: 1px solid var(--siswa-border);
-    border-radius: 9px;
-    background-color: #fff;
-    color: #26372E;
-    font-size: .88rem;
-    box-shadow: none;
-    transition: border-color .18s ease, box-shadow .18s ease;
-}
-
-.modal-body textarea.form-control {
-    min-height: 76px;
-    resize: vertical;
-}
-
-.modal-body .form-control::placeholder {
-    color: #98A59E;
-}
-
-.modal-body .form-control:focus,
-.modal-body .form-select:focus {
-    border-color: #62A98A;
-    box-shadow: 0 0 0 3px rgba(36,107,75,.11);
-}
-
-/* CHECKBOX AKUN */
-
-.modal-body .form-check {
-    padding: 14px 15px 13px 2.1rem !important;
-    border: 1px solid #DCE8E2 !important;
-    border-radius: 10px !important;
-    background: #F7FAF8 !important;
-}
-
-.modal-body .form-check-input {
-    margin-top: .22rem;
-}
-
-.modal-body .form-check-input:checked {
-    border-color: var(--siswa-primary);
-    background-color: var(--siswa-primary);
-}
-
-.modal-body .form-check-label {
-    color: #30443A;
-    font-size: .88rem;
-}
-
-.modal-body .form-text {
-    margin-top: 6px;
-    color: #74847B;
-    font-size: .8rem;
-}
-
-.modal-body code {
-    padding: 2px 6px;
-    border-radius: 5px;
-    background: #EAF5EF;
-    color: var(--siswa-primary);
-    font-size: .8rem;
-}
-
-/* FOOTER MODAL */
-
-.siswa-modal-footer {
-    display: flex;
-    justify-content: flex-end;
-    gap: 9px;
-    padding: 14px 20px !important;
-    border-top: 1px solid #E7EEEA !important;
-    background: #fff;
-}
-
-.siswa-modal-footer .btn {
-    min-width: 105px;
-}
-
-/* TOMBOL AKSI TABEL */
-
-.btn-action-view,
-.btn-action-edit,
-.btn-action-delete {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 34px;
-    height: 32px;
-    margin: 0 2px;
-    border-radius: 8px !important;
-    background: #fff !important;
-}
-
-.btn-action-view {
-    border: 1px solid #B7DCD7 !important;
-    color: #27877B !important;
-}
-
-.btn-action-view:hover {
-    background: #E8F8F5 !important;
-}
-
-.btn-action-edit {
-    border: 1px solid #BFD3EF !important;
-    color: #3975B9 !important;
-}
-
-.btn-action-edit:hover {
-    background: #EEF5FF !important;
-}
-
-.btn-action-delete {
-    border: 1px solid #F0C4C8 !important;
-    color: #C44755 !important;
-}
-
-.btn-action-delete:hover {
-    background: #FFF0F1 !important;
-}
-
-/* RESPONSIVE */
-
-@media (max-width: 767.98px) {
-
-    .page-header {
-        align-items: flex-start;
-        flex-direction: column;
-    }
-
-    .page-header .btn-add-siswa {
-        width: 100%;
-    }
-
-    #modalTambahSiswa .modal-dialog,
-    [id^="modalEditSiswa"] .modal-dialog {
-        margin: 10px;
-    }
-
-    .modal-body {
-        padding: 17px 15px !important;
-    }
-
-    .siswa-modal-header,
-    .siswa-modal-footer {
-        padding-left: 15px !important;
-        padding-right: 15px !important;
-    }
-}
-</style>
 
 <?php require_once BASEPATH . '/includes/footer.php'; ?>
